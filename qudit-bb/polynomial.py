@@ -4,12 +4,20 @@ import numpy as np
 from utils import cyclic_permutation
 
 class Polynomial:
-    """Polynomial class over finite fields."""
+    """Polynomial class over finite fields.
+
+    Parameters
+    ----------
+    field : int
+        An integer defining the finite field.
+    coefficients : np.ndarray
+        Coefficients of the polynomial.
+    """
 
     def __init__(self, field, coefficients):
-        if type(field) is not int:
+        if not isinstance(field, int):
             raise TypeError("field must be an integer")
-        if type(coefficients) is not np.ndarray:
+        if not isinstance(coefficients, np.ndarray):
             raise TypeError("coefficients must be a ndarray")
         if coefficients.dtype != int:
             raise TypeError("coefficients must be an ndarray of integers")
@@ -24,7 +32,7 @@ class Polynomial:
 
     def __repr__(self):
         """Canonical string representation of Polynomial."""
-        return f"Polynomial({self.field}, {self.coefficients})"
+        return f"Polynomial({self.field}, {self.coefficients.__repr__()})"
 
     def __call__(self, x_dim, y_dim):
         """Evaluate the Polynomial for cyclic shift permutation matrices of size x_dim, y_dim."""
