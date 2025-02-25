@@ -1,6 +1,7 @@
 """Implementation of the Polynomial class over finite fields."""
 
 import numpy as np
+from utils import cyclic_permutation
 
 class Polynomial:
     """Polynomial class over finite fields."""
@@ -24,3 +25,12 @@ class Polynomial:
     def __repr__(self):
         """Canonical string representation of Polynomial."""
         return f"Polynomial({self.field}, {self.coefficients})"
+
+    def __call__(self, x_dim, y_dim):
+        """Evaluate the Polynomial for cyclic shift permutation matrices of size x_dim, y_dim."""
+        dim = self.coefficients.shape
+        result = []
+        for i in range(dim[0]):
+            for j in range(dim[1]):
+                result.append(self.coefficients[i, j] * np.kron(cyclic_permutation(x_dim, i), cyclic_permutation(y_dim, j)))
+        return sum(result) % self.field
