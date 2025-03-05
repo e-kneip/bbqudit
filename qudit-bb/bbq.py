@@ -4,6 +4,15 @@ from polynomial import Polynomial
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
+from sympy import isprime
+import warnings
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
+
+
+class ValueWarning(UserWarning):
+    pass
+
 
 class BivariateBicycle:
     """Implementation of the Bivariate Bicycle code on qudits.
@@ -19,7 +28,7 @@ class BivariateBicycle:
     m : int
         Dimension of right cyclic shift matrix.
     q : int
-        Defines CSS code construction H_x=(A|B) and H_y=(qB^T|(q-1)A^T).
+        Defines CSS code construction H_x=(A|B) and H_y=(qB^T|(a.field-q)A^T).
     """
 
     def __init__(self, a : Polynomial, b : Polynomial, l : int, m : int, q : int):
@@ -42,6 +51,8 @@ class BivariateBicycle:
         self.l, self.m, self.q = l, m, q
         self.hx = np.hstack((a(l, m), b(l, m)))
         self.hy = np.hstack((q * b(l, m).transpose(), (self.field-q) * a(l, m).transpose())) % self.field
+        if not isprime(self.field):
+            warnings.warn("Field is not prime.", ValueWarning)
 
     def __str__(self):
         """String representation of BivariateBicycle."""
@@ -61,8 +72,8 @@ class BivariateBicycle:
 
         # Set up plot
         fig, ax = plt.subplots()
-        ax.set_xlim(0.5, (n//2)//self.l+0.5)
-        ax.set_ylim(0.5, m//self.m+0.5)
+        ax.set_xlim(-0.3, (n//2)//self.l-0.2)
+        ax.set_ylim(-0.3, m//self.m-0.2)
         ax.set_aspect('equal', adjustable='box')
 
         # Define nodes
@@ -78,45 +89,102 @@ class BivariateBicycle:
             return Circle((x, y), radius=0.03, edgecolor='gold', facecolor='gold', zorder=3)
 
         # Draw nodes
-        for i in np.arange(0.75, (n//2)//self.l+0.5, 1):
-            for j in np.arange(0.75, m//self.m+0.5, 1):
+        for i in np.arange(0, (n//2)//self.l, 1):
+            for j in np.arange(0, m//self.m, 1):
                 ax.add_patch(x_stabiliser(i+0.475, j-0.025))
                 ax.add_patch(z_stabiliser(i-0.025, j+0.475))
                 ax.add_patch(l_data(i+0.5, j+0.5))
                 ax.add_patch(r_data(i, j))
 
         # Draw x stabiliser edges
-        for i in range(m):
-            for j in range(n//2):
+        for i in range(m//self.m):
+            for j in range((n//2)//self.l):
                 for k in range(a_coefficients.shape[0]):
                     for l in range(a_coefficients.shape[1]):
                         if a_coefficients[k, l]:
-                            ax.plot([0.75+j, 0.25+k+j], [0.25+i, 0.25+l+i], color='slategray')
+                            div = a_coefficients[k, l]
+                            if div == 1:
+                                ax.plot([0.5+j, k+j], [i, l+i], color='slategray')
+                            else:
+                                line, = ax.plot([0.5+j, k+j], [i, l+i], color='slategray') 
+                                line.set_dashes([16/div, 2, 16/div, 2])
+                                line.set_dash_capstyle('round')
 
-        for i in range(m):
-            for j in range(n//2):
+        for i in range(m//self.m):
+            for j in range((n//2)//self.l):
                 for k in range(b_coefficients.shape[0]):
                     for l in range(b_coefficients.shape[1]):
                         if b_coefficients[k, l]:
-                            ax.plot([0.75+j, 0.75+k+j], [0.25+i, 0.75+l+i], color='slategray')  
+                            div = b_coefficients[k, l]
+                            if div == 1:
+                                ax.plot([0.5+j, 0.5+k+j], [i, 0.5-l+i], color='slategray')
+                            else:
+                                line, = ax.plot([0.5+j, 0.5+k+j], [i, 0.5-l+i], color='slategray')  
+                                line.set_dashes([16/div, 2, 16/div, 2])
+                                line.set_dash_capstyle('round')
 
         # Draw z stabiliser edges
-        for i in range(-1, m):
-            for j in range(-1, n//2):
+        for i in range(m//self.m):
+            for j in range((n//2)//self.l):
                 for k in range(a_coefficients.shape[0]):
                     for l in range(a_coefficients.shape[1]):
                         if a_coefficients[k, l]:
-                            ax.plot([0.25+j, 0.75-k+j], [0.75+i, 0.75+l+i], color='darkgray')
-        for i in range(-1, m):
-            for j in range(-1, n//2):
+                            div = (self.q * a_coefficients[k, l]) % self.field
+                            if div == 1:
+                                ax.plot([j, 0.5-k+j], [0.5+i, 0.5+l+i], color='darkgray')
+                            else:
+                                line, = ax.plot([j, 0.5-k+j], [0.5+i, 0.5+l+i], color='darkgray')
+                                line.set_dashes([16/div, 2, 16/div, 2])
+                                line.set_dash_capstyle('round')
+
+        for i in range(m//self.m):
+            for j in range((n//2)//self.l):
                 for k in range(b_coefficients.shape[0]):
                     for l in range(b_coefficients.shape[1]):
                         if b_coefficients[k, l]:
-                            ax.plot([0.25+j, 0.25+k+j], [0.75+i, 0.25-l+i], color='darkgray')
+                            div = ((self.field-self.q) * b_coefficients[k, l]) % self.field
+                            if div == 1:
+                                ax.plot([j, k+j], [0.5+i, l+i], color='darkgray')
+                            else:
+                                line, = ax.plot([j, k+j], [0.5+i, l+i], color='darkgray') 
+                                line.set_dashes([16/div, 2, 16/div, 2])
+                                line.set_dash_capstyle('round')
 
+        # Draw boundary
+        ax.plot([-0.25, -0.25], [-0.25, m//self.m-0.25], color='black', linewidth=0.7)
+        ax.arrow(-0.25, -0.25, 0, m//self.m/2, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.plot([-0.25, (n//2)//self.l-0.25], [-0.25, -0.25], color='black', linewidth=0.7)
+        ax.arrow(-0.25, -0.25, ((n//2)//self.l)/2-0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.arrow(-0.25, -0.25, ((n//2)//self.l)/2+0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.plot([-0.25, (n//2)//self.l-0.25], [m//self.m-0.25, m//self.m-0.25], color='black', linewidth=0.7)
+        ax.arrow(-0.25, m//self.m-0.25, (m//self.m)/2-0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.arrow(-0.25, m//self.m-0.25, (m//self.m)/2+0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.plot([(n//2)//self.l-0.25, (n//2)//self.l-0.25], [-0.25, m//self.m-0.25], color='black', linewidth=0.7)
+        ax.arrow((n//2)//self.l-0.25, -0.25, 0, m//self.m/2, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
 
         # Make plot look nice
         ax.set_axis_off()
+        ax.set_title('Tanner Graph')
 
-        ax.legend(['X stabiliser', 'Z stabiliser', 'Left data', 'Right data'], loc='upper left', bbox_to_anchor=(1, 1))
-        ax.set_title('Tanner Graph');
+        # Add legend
+        handles = ['X stabiliser', 'Z stabiliser', 'Left data', 'Right data']
+        lines = []
+        patch_colours = ['lightcoral', 'lightseagreen', 'royalblue', 'gold']
+        for i in range(4):
+            lines.append(mpatches.Patch(color=patch_colours[i]))
+        for i in range(1, self.field):
+            xline, = ax.plot([0], [0], color='slategray')
+            zline, = ax.plot([0], [0], color='darkgray')
+            xline.set_dashes([16/i, 2, 16/i, 2])
+            zline.set_dashes([16/i, 2, 16/i, 2])
+            xline.set_dash_capstyle('round')
+            zline.set_dash_capstyle('round')
+            lines.append(xline)
+            lines.append(zline)
+            if i==1:
+                handles.append('X')
+                handles.append('Z')
+            else:
+                handles.append(f'X^{i}')
+                handles.append(f'Z^{i}')
+        ax.legend(lines, handles, loc='upper left', bbox_to_anchor=(1, 1), handlelength=2.4);
