@@ -157,8 +157,8 @@ class BivariateBicycle:
         ax.arrow(-0.25, -0.25, ((n//2)//self.l)/2-0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
         ax.arrow(-0.25, -0.25, ((n//2)//self.l)/2+0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
         ax.plot([-0.25, (n//2)//self.l-0.25], [m//self.m-0.25, m//self.m-0.25], color='black', linewidth=0.7)
-        ax.arrow(-0.25, m//self.m-0.25, (m//self.m)/2-0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
-        ax.arrow(-0.25, m//self.m-0.25, (m//self.m)/2+0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.arrow(-0.25, m//self.m-0.25, (m//self.l)/2-0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
+        ax.arrow(-0.25, m//self.m-0.25, (m//self.l)/2+0.05, 0, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
         ax.plot([(n//2)//self.l-0.25, (n//2)//self.l-0.25], [-0.25, m//self.m-0.25], color='black', linewidth=0.7)
         ax.arrow((n//2)//self.l-0.25, -0.25, 0, m//self.m/2, head_width=0.1, head_length=0.1, color='black', linewidth=0.05)
 
