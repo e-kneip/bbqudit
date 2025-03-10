@@ -42,3 +42,13 @@ class Polynomial:
             for j in range(dim[1]):
                 result.append(self.coefficients[i, j] * np.kron(cyclic_permutation(x_dim, i), cyclic_permutation(y_dim, j)))
         return sum(result) % self.field
+
+    def factor(self):
+        """Find index of the lowest degree, non-zero coefficient."""
+        if (self.coefficients == 0).all():
+            return np.array([0, 0])
+        coef = self.coefficients
+        coef_nonzero = coef.nonzero()
+        min_ind = np.argmin(np.array(coef_nonzero).sum(axis=0))
+        min_coef_ind = np.array([coef_nonzero[0][min_ind], coef_nonzero[1][min_ind]])
+        return min_coef_ind
