@@ -50,13 +50,13 @@ class BivariateBicycle:
         self.field = a.field
         self.l, self.m, self.q = l, m, q
         self.hx = np.hstack((a(l, m), b(l, m)))
-        self.hy = np.hstack((q * b(l, m).transpose(), (self.field-q) * a(l, m).transpose())) % self.field
+        self.hz = np.hstack((q * b(l, m).transpose(), (self.field-q) * a(l, m).transpose())) % self.field
         if not isprime(self.field):
             warnings.warn("Field is not prime.", ValueWarning)
 
     def __str__(self):
         """String representation of BivariateBicycle."""
-        return f"Bivariate Bicycle code for\na = {self.a}\nb = {self.b}"
+        return f"Bivariate Bicycle code for\na(x, y) = {self.a}\nb(x, y) = {self.b}"
 
     def __repr__(self):
         """Canonical string epresentation of BivariateBicycle."""
@@ -65,7 +65,7 @@ class BivariateBicycle:
     def draw(self):
         """Draw the Bivariate Bicycle code Tanner graph."""
         # Define parameters
-        hx, hy = self.hx, self.hy
+        hx, hz = self.hx, self.hz
         m, n = hx.shape
         a_coefficients = self.a.coefficients
         b_coefficients = self.b.coefficients
