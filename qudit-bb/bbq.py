@@ -80,21 +80,21 @@ class BivariateBicycle:
 
         # Define nodes
         def x_stabiliser(x, y):
-            return Rectangle((x, y), width=0.05, height=0.05, 
+            return Rectangle((x, y), width=0.1, height=0.1, 
                         edgecolor='lightcoral', facecolor='lightcoral', zorder=3)
         def z_stabiliser(x, y):
-            return Rectangle((x, y), width=0.05, height=0.05, 
+            return Rectangle((x, y), width=0.1, height=0.1, 
                         edgecolor='lightseagreen', facecolor='lightseagreen', zorder=3)
         def l_data(x, y):
-            return Circle((x, y), radius=0.03, edgecolor='royalblue', facecolor='royalblue', zorder=3)
+            return Circle((x, y), radius=0.06, edgecolor='royalblue', facecolor='royalblue', zorder=3)
         def r_data(x, y):
-            return Circle((x, y), radius=0.03, edgecolor='gold', facecolor='gold', zorder=3)
+            return Circle((x, y), radius=0.06, edgecolor='gold', facecolor='gold', zorder=3)
 
         # Draw nodes
         for i in np.arange(0, (n//2)//self.l, 1):
             for j in np.arange(0, m//self.m, 1):
-                ax.add_patch(x_stabiliser(i+0.475, j-0.025))
-                ax.add_patch(z_stabiliser(i-0.025, j+0.475))
+                ax.add_patch(x_stabiliser(i+0.45, j-0.05))
+                ax.add_patch(z_stabiliser(i-0.05, j+0.45))
                 ax.add_patch(l_data(i+0.5, j+0.5))
                 ax.add_patch(r_data(i, j))
 
