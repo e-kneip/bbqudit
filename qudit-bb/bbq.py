@@ -7,7 +7,6 @@ from matplotlib.patches import Rectangle, Circle
 from sympy import isprime
 import warnings
 import matplotlib.patches as mpatches
-from matplotlib.lines import Line2D
 
 
 class ValueWarning(UserWarning):
@@ -190,3 +189,217 @@ class BivariateBicycle:
                 handles.append(f'X^{i}')
                 handles.append(f'Z^{i}')
         ax.legend(lines, handles, loc='upper left', bbox_to_anchor=(1, 1), handlelength=2.4);
+
+    def construct_sm_circuit(self, x_order : list, z_order : list, num_cycles : int = 1) -> list:
+        """Construct the stabiliser measurement circuit for the Bivariate Bicycle code.
+        
+        Parameters
+        ----------
+        x_order : list
+            List of integers or 'Idle' defining the order of the CNOTs for x stabilisers.
+        y_order : list
+            List of integers or 'Idle' defining the order of the CNOTs for y stabilisers.
+        num_cycles : int, optional
+            Number of times to repeat the circuit. The default is one cycle.
+        
+        Returns
+        -------
+        circ : list
+            List of gates in syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Y', qubit), ('Prep_X', qubit).
+        """
+        if not isinstance(x_order, list):
+            raise TypeError("x_order must be a list")
+        if not isinstance(z_order, list):
+            raise TypeError("y_order must be a list")
+        for gate in x_order:
+            if not (isinstance(gate, int) or gate == 'Idle'):
+                raise TypeError("x_order must be an array of integers or 'Idle'")
+        for gate in z_order:
+            if not (isinstance(gate, int) or gate == 'Idle'):
+                raise TypeError("z_order must be an array of integers or 'Idle'")
+        if not x_order[0] == 'Idle':
+            raise ValueError("First x_order round must be 'Idle'")
+        if not z_order[-1] == 'Idle':
+            raise ValueError("Last y_order round must be 'Idle'")
+        for i in range(len(np.nonzero(self.hx[0])[0])):
+            if i not in x_order:
+                raise ValueError("x_order must contain all target qubits")
+        for i in range(len(np.nonzero(self.hz[0])[0])):
+            if i not in z_order:
+                raise ValueError("y_order must contain all target qubits")
+        if not (isinstance(num_cycles, int) and num_cycles > 0):
+            raise TypeError("num_cycles must be a positive integer")
+
+        hx, hz = self.hx, self.hz
+        a, b = self.a, self.b
+        l, m, q = self.l, self.m, self.q
+        field = self.field
+        if len(x_order) > len(z_order):
+            z_order += ['Idle'] * (len(x_order) - len(z_order))
+        elif len(z_order) > len(x_order):
+            x_order += ['Idle'] * (len(z_order) - len(x_order))
+
+        # Set up monomials to aid in defining edges
+        A, B = [], []
+        row, col = np.nonzero(a.coefficients)
+        for i in range(len(row)):
+            poly_coef = np.zeros((a.coefficients.shape), dtype=int)
+            poly_coef[row[i], col[i]] = a.coefficients[row[i], col[i]]
+            poly = Polynomial(a.field, poly_coef)
+            A.append(poly(l, m))
+        row, col = np.nonzero(b.coefficients)
+        for i in range(len(row)):
+            poly_coef = np.zeros((b.coefficients.shape), dtype=int)
+            poly_coef[row[i], col[i]] = b.coefficients[row[i], col[i]]
+            poly = Polynomial(b.field, poly_coef)
+            B.append(poly(l, m))
+
+        # Give names to each qubit and store in a dictionary: (qubit_type, qubit_type_number) : qubit_index
+        qubits_dict = {}
+        data_qubits, x_checks, z_checks = [], [], []
+        for i in range(l*m):
+            # X checks
+            node_name = ('x_check', i)
+            x_checks.append(node_name)
+            qubits_dict[node_name] = i
+
+            # Left data qubits
+            node_name = ('data_left', i)
+            data_qubits.append(node_name)
+            qubits_dict[node_name] = l*m + i
+
+            # Right data qubits
+            node_name = ('data_right', i)
+            data_qubits.append(node_name)
+            qubits_dict[node_name] = 2*l*m + i
+
+            # Z checks
+            node_name = ('z_check', i)
+            z_checks.append(node_name)
+            qubits_dict[node_name] = 3*l*m + i
+
+        # Set up edges connecting data and measurement qubits in a dictionary: ((check_qubit_type, check_type_number), monomial_index/direction) : (qubit_type, qubit_number)
+        edges = {}
+        for i in range(l*m):
+            # X checks
+            check_name = ('x_check', i)
+            # Left data qubits
+            for j in range(len(A)):
+                y = int(np.nonzero(A[j][i, :])[0][0])
+                edges[(check_name, j)] = (('data_left', y), int(A[j][i, y]))
+            # Right data qubits
+            for j in range(len(B)):
+                y = int(np.nonzero(B[j][i, :])[0][0])
+                edges[(check_name, len(A) + j)] = (('data_right', y), int(B[j][i, y]))
+
+            # Z checks
+            check_name = ('z_check', i)
+            # Left data qubits
+            for j in range(len(B)):
+                y = int(np.nonzero(B[j][:, i])[0][0])
+                edges[(check_name, j)] = (('data_left', y), (q * int(B[j][y, i])) % field)
+            # Right data qubits
+            for j in range(len(A)):
+                y = int(np.nonzero(A[j][:, i])[0][0])
+                edges[(check_name, len(A) + j)] = (('data_right', y), ((field - q) * int(A[j][y, i])) % field)
+        # Construct the circuit
+        circ = []
+        U = np.identity(4*l*m, dtype=int)  # to verify CNOT order
+
+        # For each time step, add the corresponding gate:
+        # ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Y', qubit), ('Prep_X', qubit)
+
+        # Round 0: Prepare X checks, CNOT/Idle Z checks
+        t = 0
+        cnoted_data_qubits = []
+        for qubit in x_checks:
+            circ.append(('Prep_X', qubit))
+        if z_order[t] == 'Idle':
+            for qubit in z_checks:
+                circ.append(('Idle', qubit))
+        else:
+            for target in z_checks:
+                direction = z_order[t]
+                control, power = edges[(target, direction)]
+                U[qubits_dict[target], :] = (U[qubits_dict[target], :] + power * U[qubits_dict[control], :]) % field
+                cnoted_data_qubits.append(control)
+                circ.append(('CNOT', control, target, power))
+        for qubit in data_qubits:
+            if not (qubit in cnoted_data_qubits):
+                circ.append(('Idle', qubit))
+
+        # Round [1, (max-1)]: CNOT/Idle X checks, CNOT/Idle Z checks
+        for t in range(1, len(x_order)-1):
+            cnoted_data_qubits = []
+            if x_order[t] == 'Idle':
+                for qubit in x_checks:
+                    circ.append(('Idle', qubit))
+            else:
+                for control in x_checks:
+                    direction = x_order[t]
+                    target, power = edges[(control, direction)]
+                    U[qubits_dict[target], :] = (U[qubits_dict[target], :] + power * U[qubits_dict[control], :]) % field
+                    cnoted_data_qubits.append(target)
+                    circ.append(('CNOT', control, target, power))
+            if z_order[t] == 'Idle':
+                for qubit in z_checks:
+                    circ.append(('Idle', qubit))
+            else:
+                for target in z_checks:
+                    direction = z_order[t]
+                    control, power = edges[(target, direction)]
+                    U[qubits_dict[target], :] = (U[qubits_dict[target], :] + power * U[qubits_dict[control], :]) % field
+                    cnoted_data_qubits.append(control)
+                    circ.append(('CNOT', control, target, power))
+            for qubit in data_qubits:
+                if not (qubit in cnoted_data_qubits):
+                    circ.append(('Idle', qubit))
+
+        # Round max: CNOT/Idle X checks, Measure Z checks
+        t = -1
+        cnoted_data_qubits = []
+        if x_order[t] == 'Idle':
+            for qubit in x_checks:
+                circ.append(('Idle', qubit))
+        else:
+            for control in x_checks:
+                direction = x_order[t]
+                target, power = edges[(control, direction)]
+                U[qubits_dict[target], :] = (U[qubits_dict[target], :] + power * U[qubits_dict[control], :]) % field
+                circ.append(('CNOT', control, target, power))
+                cnoted_data_qubits.append(target)
+        for qubit in z_checks:
+            circ.append(('Meas_Z', qubit))
+        for qubit in data_qubits:
+            if not (qubit in cnoted_data_qubits):
+                circ.append(('Idle', qubit))
+        
+        # Round final: Measure X checks, Prepare Z checks
+        for qubit in data_qubits:
+            circ.append(('Idle', qubit))
+        for qubit in x_checks:
+            circ.append(('Meas_X', qubit))
+        for qubit in z_checks:
+            circ.append(('Prep_Z', qubit))
+
+        # Repeat circuit
+        circ = circ * num_cycles
+
+        # Test measurement circuit against max depth circuit
+        V = np.identity(4*l*m, dtype=int)
+        for t in range(len(x_order)):
+            if not x_order[t] == 'Idle':
+                for control in x_checks:
+                    direction = x_order[t]
+                    target, power = edges[(control, direction)]
+                    V[qubits_dict[target], :] = (V[qubits_dict[target], :] + power * V[qubits_dict[control], :]) % field
+        for t in range(len(z_order)):
+            if not z_order[t] == 'Idle':
+                for target in z_checks:
+                    direction = z_order[t]
+                    control, power = edges[(target, direction)]
+                    V[qubits_dict[target], :] = (V[qubits_dict[target], :] + power * V[qubits_dict[control], :]) % field
+        if not np.array_equal(U, V):
+            raise ValueError("Syndrome circuit does not match max depth syndrome circuit, check stabiliser orders")
+
+        return circ
