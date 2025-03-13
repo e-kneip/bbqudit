@@ -205,7 +205,7 @@ class BivariateBicycle:
         Returns
         -------
         circ : list
-            List of gates in syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Y', qubit), ('Prep_X', qubit).
+            List of gates in syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
         """
         if not isinstance(x_order, list):
             raise TypeError("x_order must be a list")
