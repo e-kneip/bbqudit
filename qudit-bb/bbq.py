@@ -45,13 +45,94 @@ class BivariateBicycle:
             raise ValueError("q must be a positive integer less than the field of the polynomials")
         if a.field != b.field:
             raise ValueError("Polynomials a and b must be over the same field")
+        if not isprime(self.field):
+            warnings.warn("Field is not prime.", ValueWarning)
         self.a, self.b = a, b
         self.field = a.field
         self.l, self.m, self.q = l, m, q
         self.hx = np.hstack((a(l, m), b(l, m)))
         self.hz = np.hstack((q * b(l, m).transpose(), (self.field-q) * a(l, m).transpose())) % self.field
-        if not isprime(self.field):
-            warnings.warn("Field is not prime.", ValueWarning)
+        self.A, self.B = self._monomials()
+        self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = self._qubits()
+        self.edges = self._edges()
+
+
+    def _monomials(self):
+        """Construct monomials for the Bivariate Bicycle code."""
+        a, b = self.a, self.b
+        l, m = self.l, self.m
+        A, B = [], []
+        row, col = np.nonzero(a.coefficients)
+        for i in range(len(row)):
+            poly_coef = np.zeros((a.coefficients.shape), dtype=int)
+            poly_coef[row[i], col[i]] = a.coefficients[row[i], col[i]]
+            poly = Polynomial(a.field, poly_coef)
+            A.append(poly(l, m))
+        row, col = np.nonzero(b.coefficients)
+        for i in range(len(row)):
+            poly_coef = np.zeros((b.coefficients.shape), dtype=int)
+            poly_coef[row[i], col[i]] = b.coefficients[row[i], col[i]]
+            poly = Polynomial(b.field, poly_coef)
+            B.append(poly(l, m))
+        return A, B
+
+    def _qubits(self):
+        """Give names to each qubit and store in a dictionary: (qubit_type, qubit_type_number) : qubit_index"""
+        l, m = self.l, self.m
+        qubits_dict = {}
+        data_qubits, x_checks, z_checks = [], [], []
+        for i in range(l*m):
+            # X checks
+            node_name = ('x_check', i)
+            x_checks.append(node_name)
+            qubits_dict[node_name] = i
+
+            # Left data qubits
+            node_name = ('data_left', i)
+            data_qubits.append(node_name)
+            qubits_dict[node_name] = l*m + i
+
+            # Right data qubits
+            node_name = ('data_right', i)
+            data_qubits.append(node_name)
+            qubits_dict[node_name] = 2*l*m + i
+
+            # Z checks
+            node_name = ('z_check', i)
+            z_checks.append(node_name)
+            qubits_dict[node_name] = 3*l*m + i
+        return qubits_dict, data_qubits, x_checks, z_checks
+
+    def _edges(self):
+        """Set up edges connecting data and measurement qubits in a dictionary: ((check_qubit_type, check_type_number), monomial_index/direction) : (qubit_type, qubit_number)"""
+        l, m = self.l, self.m
+        q = self.q
+        field = self.field
+        A, B = self.A, self.B
+        edges = {}
+        for i in range(l*m):
+            # X checks
+            check_name = ('x_check', i)
+            # Left data qubits
+            for j in range(len(A)):
+                y = int(np.nonzero(A[j][i, :])[0][0])
+                edges[(check_name, j)] = (('data_left', y), int(A[j][i, y]))
+            # Right data qubits
+            for j in range(len(B)):
+                y = int(np.nonzero(B[j][i, :])[0][0])
+                edges[(check_name, len(A) + j)] = (('data_right', y), int(B[j][i, y]))
+
+            # Z checks
+            check_name = ('z_check', i)
+            # Left data qubits
+            for j in range(len(B)):
+                y = int(np.nonzero(B[j][:, i])[0][0])
+                edges[(check_name, j)] = (('data_left', y), (q * int(B[j][y, i])) % field)
+            # Right data qubits
+            for j in range(len(A)):
+                y = int(np.nonzero(A[j][:, i])[0][0])
+                edges[(check_name, len(A) + j)] = (('data_right', y), ((field - q) * int(A[j][y, i])) % field)
+        return edges
 
     def __str__(self):
         """String representation of BivariateBicycle."""
@@ -229,79 +310,19 @@ class BivariateBicycle:
                 raise ValueError("y_order must contain all target qubits")
         if not (isinstance(num_cycles, int) and num_cycles > 0):
             raise TypeError("num_cycles must be a positive integer")
-
-        hx, hz = self.hx, self.hz
-        a, b = self.a, self.b
-        l, m, q = self.l, self.m, self.q
-        field = self.field
         if len(x_order) > len(z_order):
             z_order += ['Idle'] * (len(x_order) - len(z_order))
         elif len(z_order) > len(x_order):
             x_order += ['Idle'] * (len(z_order) - len(x_order))
 
-        # Set up monomials to aid in defining edges
-        A, B = [], []
-        row, col = np.nonzero(a.coefficients)
-        for i in range(len(row)):
-            poly_coef = np.zeros((a.coefficients.shape), dtype=int)
-            poly_coef[row[i], col[i]] = a.coefficients[row[i], col[i]]
-            poly = Polynomial(a.field, poly_coef)
-            A.append(poly(l, m))
-        row, col = np.nonzero(b.coefficients)
-        for i in range(len(row)):
-            poly_coef = np.zeros((b.coefficients.shape), dtype=int)
-            poly_coef[row[i], col[i]] = b.coefficients[row[i], col[i]]
-            poly = Polynomial(b.field, poly_coef)
-            B.append(poly(l, m))
+        hx, hz = self.hx, self.hz
+        a, b = self.a, self.b
+        l, m, q = self.l, self.m, self.q
+        field = self.field
+        A, B = self.A, self.B
+        qubits_dict, data_qubits, x_checks, z_checks = self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks
+        edges = self.edges
 
-        # Give names to each qubit and store in a dictionary: (qubit_type, qubit_type_number) : qubit_index
-        qubits_dict = {}
-        data_qubits, x_checks, z_checks = [], [], []
-        for i in range(l*m):
-            # X checks
-            node_name = ('x_check', i)
-            x_checks.append(node_name)
-            qubits_dict[node_name] = i
-
-            # Left data qubits
-            node_name = ('data_left', i)
-            data_qubits.append(node_name)
-            qubits_dict[node_name] = l*m + i
-
-            # Right data qubits
-            node_name = ('data_right', i)
-            data_qubits.append(node_name)
-            qubits_dict[node_name] = 2*l*m + i
-
-            # Z checks
-            node_name = ('z_check', i)
-            z_checks.append(node_name)
-            qubits_dict[node_name] = 3*l*m + i
-
-        # Set up edges connecting data and measurement qubits in a dictionary: ((check_qubit_type, check_type_number), monomial_index/direction) : (qubit_type, qubit_number)
-        edges = {}
-        for i in range(l*m):
-            # X checks
-            check_name = ('x_check', i)
-            # Left data qubits
-            for j in range(len(A)):
-                y = int(np.nonzero(A[j][i, :])[0][0])
-                edges[(check_name, j)] = (('data_left', y), int(A[j][i, y]))
-            # Right data qubits
-            for j in range(len(B)):
-                y = int(np.nonzero(B[j][i, :])[0][0])
-                edges[(check_name, len(A) + j)] = (('data_right', y), int(B[j][i, y]))
-
-            # Z checks
-            check_name = ('z_check', i)
-            # Left data qubits
-            for j in range(len(B)):
-                y = int(np.nonzero(B[j][:, i])[0][0])
-                edges[(check_name, j)] = (('data_left', y), (q * int(B[j][y, i])) % field)
-            # Right data qubits
-            for j in range(len(A)):
-                y = int(np.nonzero(A[j][:, i])[0][0])
-                edges[(check_name, len(A) + j)] = (('data_right', y), ((field - q) * int(A[j][y, i])) % field)
         # Construct the circuit
         circ = []
         U = np.identity(4*l*m, dtype=int)  # to verify CNOT order
