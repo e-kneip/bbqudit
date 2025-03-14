@@ -45,7 +45,7 @@ class BivariateBicycle:
             raise ValueError("q must be a positive integer less than the field of the polynomials")
         if a.field != b.field:
             raise ValueError("Polynomials a and b must be over the same field")
-        if not isprime(self.field):
+        if not isprime(a.field):
             warnings.warn("Field is not prime.", ValueWarning)
         self.a, self.b = a, b
         self.field = a.field
@@ -56,6 +56,13 @@ class BivariateBicycle:
         self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = self._qubits()
         self.edges = self._edges()
 
+    def __str__(self):
+        """String representation of BivariateBicycle."""
+        return f"Bivariate Bicycle code for\na(x, y) = {self.a}\nb(x, y) = {self.b}"
+
+    def __repr__(self):
+        """Canonical string epresentation of BivariateBicycle."""
+        return f"BivariateBicycle({self.a.__repr__()}, {self.b.__repr__()})"
 
     def _monomials(self):
         """Construct monomials for the Bivariate Bicycle code."""
@@ -134,13 +141,157 @@ class BivariateBicycle:
                 edges[(check_name, len(A) + j)] = (('data_right', y), ((field - q) * int(A[j][y, i])) % field)
         return edges
 
-    def __str__(self):
-        """String representation of BivariateBicycle."""
-        return f"Bivariate Bicycle code for\na(x, y) = {self.a}\nb(x, y) = {self.b}"
+    def _simulate_z_circuit(self, circ : list):
+        """Propagate a Z error through a circuit.
+        
+        Parameters
+        ----------
+        circ : list
+            List of gates in circuit.
+        
+        Returns
+        -------
+        syndrome_history : nd.array
+            Syndrome history, i.e. the results of the X measurements.
+        state : nd.array
+            Final state, 0 indicates no error, 1 indicates error.
+        syndrome_map : dict
+            Dictionary of {x_check qubit : list of positions in syndrome_history where qubit has been measured}.
+        err_cnt : int
+            Number of errors.
+        """
+        qubits_dict = self.qubits_dict
+        field = self.field
+        n = 2 * self.l * self.m
 
-    def __repr__(self):
-        """Canonical string epresentation of BivariateBicycle."""
-        return f"BivariateBicycle({self.a.__repr__()}, {self.b.__repr__()})"
+        syndrome_history, syndrome_map = [], {}
+        state = np.zeros(2*n)  # Initial state with no errors
+        err_cnt, syn_cnt = 0, 0
+        for gate in circ:
+            if gate[0] == 'CNOT':
+                # IZ -> ZZ^-1, ZI -> Z^-1I
+                control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                power = gate[3]
+                state[control] = (state[control] - power * state[target]) % field
+                continue
+            if gate[0] == 'Prep_X':
+                # Reset error to 0
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = 0
+                continue
+            if gate[0] == 'Meas_X':
+                # Add measurement result to syndrome history
+                assert gate[1][0] == 'x_check'
+                qubit = qubits_dict[gate[1]]
+                syndrome_history.append(state[qubit])
+                if gate[1] in syndrome_map:
+                    syndrome_map[gate[1]].append(syn_cnt)
+                else:
+                    syndrome_map[gate[1]] = [syn_cnt]
+                syn_cnt += 1
+                continue
+            if gate[0] in ['Z', 'Y']:
+                # Qubit gains a Z error
+                err_cnt += 1
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['ZX', 'YX']:
+                # 1st qubit gains a Z error
+                err_cnt += 1
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['XZ', 'XY']:
+                # 2nd qubit gains a Z error
+                err_cnt += 1
+                qubit = qubits_dict[gate[2]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['ZZ', 'YY', 'ZY', 'YZ']:
+                # Both qubits gain a Z error
+                err_cnt += 1
+                qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                state[qubit1] = (state[qubit1] + 1) % field
+                state[qubit2] = (state[qubit2] + 1) % field
+                continue
+        return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt
+
+    def _simulate_x_circuit(self, circ : list):
+        """Propagate an X error through a circuit.
+        
+        Parameters
+        ----------
+        circ : list
+            List of gates in circuit.
+        
+        Returns
+        -------
+        syndrome_history : nd.array
+            Syndrome history, i.e. the results of the Z measurements.
+        state : nd.array
+            Final state, 0 indicates no error, 1 indicates error.
+        syndrome_map : dict
+            Dictionary of {z_check qubit : list of positions in syndrome_history where qubit has been measured}.
+        err_cnt : int
+            Number of errors.
+        """
+        qubits_dict = self.qubits_dict
+        field = self.field
+        n = 2 * self.l * self.m
+
+        syndrome_history, syndrome_map = [], {}
+        state = np.zeros(2*n)  # Initial state with no errors
+        err_cnt, syn_cnt = 0, 0
+        for gate in circ:
+            if gate[0] == 'CNOT':
+                # XI -> XX, IX -> IX
+                control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                power = gate[3]
+                state[target] = (state[target] + power * state[control]) % field
+                continue
+            if gate[0] == 'Prep_Z':
+                # Reset error to 0
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = 0
+                continue
+            if gate[0] == 'Meas_Z':
+                # Add measurement result to syndrome history
+                assert gate[1][0] == 'z_check'
+                qubit = qubits_dict[gate[1]]
+                syndrome_history.append(state[qubit])
+                if gate[1] in syndrome_map:
+                    syndrome_map[gate[1]].append(syn_cnt)
+                else:
+                    syndrome_map[gate[1]] = [syn_cnt]
+                syn_cnt += 1
+                continue
+            if gate[0] in ['X', 'Y']:
+                # Qubit gains an X error
+                err_cnt += 1
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['XZ', 'YZ']:
+                # 1st qubit gains an X error
+                err_cnt += 1
+                qubit = qubits_dict[gate[1]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['ZX', 'ZY']:
+                # 2nd qubit gains an X error
+                err_cnt += 1
+                qubit = qubits_dict[gate[2]]
+                state[qubit] = (state[qubit] + 1) % field
+                continue
+            if gate[0] in ['XX', 'YY', 'YX', 'XY']:
+                # Both qubits gain an X error
+                err_cnt += 1
+                qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                state[qubit1] = (state[qubit1] + 1) % field
+                state[qubit2] = (state[qubit2] + 1) % field
+                continue
+        return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt            
 
     def draw(self):
         """Draw the Bivariate Bicycle code Tanner graph."""
@@ -271,8 +422,8 @@ class BivariateBicycle:
                 handles.append(f'Z^{i}')
         ax.legend(lines, handles, loc='upper left', bbox_to_anchor=(1, 1), handlelength=2.4);
 
-    def construct_sm_circuit(self, x_order : list, z_order : list, num_cycles : int = 1) -> list:
-        """Construct the stabiliser measurement circuit for the Bivariate Bicycle code.
+    def construct_sm_circuit(self, x_order : list, z_order : list) -> list:
+        """Construct one cycle of the syndrome measurement circuit for the Bivariate Bicycle code.
         
         Parameters
         ----------
@@ -280,13 +431,11 @@ class BivariateBicycle:
             List of integers or 'Idle' defining the order of the CNOTs for x stabilisers.
         y_order : list
             List of integers or 'Idle' defining the order of the CNOTs for y stabilisers.
-        num_cycles : int, optional
-            Number of times to repeat the circuit. The default is one cycle.
         
         Returns
         -------
         circ : list
-            List of gates in syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
+            List of gates in one cycle of the syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
         """
         if not isinstance(x_order, list):
             raise TypeError("x_order must be a list")
@@ -402,9 +551,6 @@ class BivariateBicycle:
             circ.append(('Meas_X', qubit))
         for qubit in z_checks:
             circ.append(('Prep_Z', qubit))
-
-        # Repeat circuit
-        circ = circ * num_cycles
 
         # Test measurement circuit against max depth circuit
         V = np.identity(4*l*m, dtype=int)
