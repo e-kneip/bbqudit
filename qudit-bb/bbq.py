@@ -457,8 +457,6 @@ class BivariateBicycle:
         for i in range(len(np.nonzero(self.hz[0])[0])):
             if i not in z_order:
                 raise ValueError("y_order must contain all target qubits")
-        if not (isinstance(num_cycles, int) and num_cycles > 0):
-            raise TypeError("num_cycles must be a positive integer")
         if len(x_order) > len(z_order):
             z_order += ['Idle'] * (len(x_order) - len(z_order))
         elif len(z_order) > len(x_order):
