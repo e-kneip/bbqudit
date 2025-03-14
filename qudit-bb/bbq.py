@@ -304,7 +304,10 @@ class BivariateBicycle:
         hx, hz = self.hx, self.hz
         m, n = hx.shape
         a_coefficients, b_coefficients = self.a.coefficients, self.b.coefficients
-        a_factors, b_factors = self.a.factor(), self.b.factor()
+        a_factors_min, a_factors_max = self.a.factor()
+        b_factors_min, b_factors_max = self.b.factor()
+        x_max = max(a_factors_max[0], b_factors_max[0])
+        y_max = max(a_factors_max[1], b_factors_max[1])
         name = self.name
 
         # Set up plot
@@ -333,17 +336,17 @@ class BivariateBicycle:
                 ax.add_patch(l_data(i+0.5, j+0.5))
                 ax.add_patch(r_data(i, j))
 
-        for i in range(m//self.m):
-            for j in range((n//2)//self.l):
+        for i in range(-x_max, x_max + m//self.m):
+            for j in range(-y_max, y_max + (n//2)//self.l):
                 for k in range(a_coefficients.shape[0]):
                     for l in range(a_coefficients.shape[1]):
                         # Draw x stabiliser edges
                         if a_coefficients[k, l]:
                             div = a_coefficients[k, l]
                             if div == 1:
-                                ax.plot([0.5+j, k+j-a_factors[0]], [i, -l+i+a_factors[1]], color='slategray')
+                                ax.plot([0.5+j, k+j-a_factors_min[0]], [i, -l+i+a_factors_min[1]], color='slategray')
                             else:
-                                line, = ax.plot([0.5+j, k+j-a_factors[0]], [i, -l+i+a_factors[1]], color='slategray') 
+                                line, = ax.plot([0.5+j, k+j-a_factors_min[0]], [i, -l+i+a_factors_min[1]], color='slategray') 
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')
 
@@ -351,9 +354,9 @@ class BivariateBicycle:
                         if a_coefficients[k, l]:
                             div = (self.q * a_coefficients[k, l]) % self.field
                             if div == 1:
-                                ax.plot([j, 0.5-k+j+a_factors[0]], [0.5+i, 0.5+l+i-a_factors[1]], color='darkgray')
+                                ax.plot([j, 0.5-k+j+a_factors_min[0]], [0.5+i, 0.5+l+i-a_factors_min[1]], color='darkgray')
                             else:
-                                line, = ax.plot([j, 0.5-k+j+a_factors[0]], [0.5+i, 0.5+l+i-a_factors[1]], color='darkgray')
+                                line, = ax.plot([j, 0.5-k+j+a_factors_min[0]], [0.5+i, 0.5+l+i-a_factors_min[1]], color='darkgray')
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')
 
@@ -363,9 +366,9 @@ class BivariateBicycle:
                         if b_coefficients[k, l]:
                             div = b_coefficients[k, l]
                             if div == 1:
-                                ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')
+                                ax.plot([0.5+j, 0.5+k+j-b_factors_min[0]], [i, 0.5-l+i+b_factors_min[1]], color='slategray')
                             else:
-                                line, = ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')  
+                                line, = ax.plot([0.5+j, 0.5+k+j-b_factors_min[0]], [i, 0.5-l+i+b_factors_min[1]], color='slategray')  
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')
 
@@ -373,9 +376,9 @@ class BivariateBicycle:
                         if b_coefficients[k, l]:
                             div = ((self.field-self.q) * b_coefficients[k, l]) % self.field
                             if div == 1:
-                                ax.plot([j, -k+j+b_factors[0]], [0.5+i, l+i-b_factors[1]], color='darkgray')
+                                ax.plot([j, -k+j+b_factors_min[0]], [0.5+i, l+i-b_factors_min[1]], color='darkgray')
                             else:
-                                line, = ax.plot([j, -k+j+b_factors[0]], [0.5+i, l+i-b_factors[1]], color='darkgray') 
+                                line, = ax.plot([j, -k+j+b_factors_min[0]], [0.5+i, l+i-b_factors_min[1]], color='darkgray') 
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')                    
                         

@@ -44,11 +44,13 @@ class Polynomial:
         return sum(result) % self.field
 
     def factor(self):
-        """Find index of the lowest degree, non-zero coefficient."""
+        """Find index of the lowest and highest degree, non-zero coefficient."""
         if (self.coefficients == 0).all():
             return np.array([0, 0])
         coef = self.coefficients
         coef_nonzero = coef.nonzero()
         min_ind = np.argmin(np.array(coef_nonzero).sum(axis=0))
+        max_ind = np.argmax(np.array(coef_nonzero).sum(axis=0))
         min_coef_ind = np.array([coef_nonzero[0][min_ind], coef_nonzero[1][min_ind]])
-        return min_coef_ind
+        max_coef_ind = np.array([coef_nonzero[0][max_ind], coef_nonzero[1][max_ind]])
+        return min_coef_ind, max_coef_ind
