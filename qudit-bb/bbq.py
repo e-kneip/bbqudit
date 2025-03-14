@@ -28,9 +28,11 @@ class BivariateBicycle:
         Dimension of right cyclic shift matrix.
     q : int
         Defines CSS code construction H_x=(A|B) and H_y=(qB^T|(a.field-q)A^T).
+    name : str
+        Name of the code.
     """
 
-    def __init__(self, a : Polynomial, b : Polynomial, l : int, m : int, q : int):
+    def __init__(self, a : Polynomial, b : Polynomial, l : int, m : int, q : int, name : str = None):
         if not isinstance(a, Polynomial):
             raise TypeError("a must be a Polynomial")
         if not isinstance(b, Polynomial):
@@ -47,6 +49,8 @@ class BivariateBicycle:
             raise ValueError("Polynomials a and b must be over the same field")
         if not isprime(a.field):
             warnings.warn("Field is not prime.", ValueWarning)
+        if not (isinstance(name, str) or name == None):
+            raise TypeError("name must be a string")
         self.a, self.b = a, b
         self.field = a.field
         self.l, self.m, self.q = l, m, q
@@ -55,6 +59,7 @@ class BivariateBicycle:
         self.A, self.B = self._monomials()
         self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = self._qubits()
         self.edges = self._edges()
+        self.name = name
 
     def __str__(self):
         """String representation of BivariateBicycle."""
@@ -298,10 +303,9 @@ class BivariateBicycle:
         # Define parameters
         hx, hz = self.hx, self.hz
         m, n = hx.shape
-        a_coefficients = self.a.coefficients
-        b_coefficients = self.b.coefficients
-        a_factors = self.a.factor()
-        b_factors = self.b.factor()
+        a_coefficients, b_coefficients = self.a.coefficients, self.b.coefficients
+        a_factors, b_factors = self.a.factor(), self.b.factor()
+        name = self.name
 
         # Set up plot
         fig, ax = plt.subplots()
@@ -329,11 +333,11 @@ class BivariateBicycle:
                 ax.add_patch(l_data(i+0.5, j+0.5))
                 ax.add_patch(r_data(i, j))
 
-        # Draw x stabiliser edges
         for i in range(m//self.m):
             for j in range((n//2)//self.l):
                 for k in range(a_coefficients.shape[0]):
                     for l in range(a_coefficients.shape[1]):
+                        # Draw x stabiliser edges
                         if a_coefficients[k, l]:
                             div = a_coefficients[k, l]
                             if div == 1:
@@ -343,24 +347,7 @@ class BivariateBicycle:
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')
 
-        for i in range(m//self.m):
-            for j in range((n//2)//self.l):
-                for k in range(b_coefficients.shape[0]):
-                    for l in range(b_coefficients.shape[1]):
-                        if b_coefficients[k, l]:
-                            div = b_coefficients[k, l]
-                            if div == 1:
-                                ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')
-                            else:
-                                line, = ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')  
-                                line.set_dashes([16/div**2, 2, 16/div**2, 2])
-                                line.set_dash_capstyle('round')
-
-        # Draw z stabiliser edges
-        for i in range(m//self.m):
-            for j in range((n//2)//self.l):
-                for k in range(a_coefficients.shape[0]):
-                    for l in range(a_coefficients.shape[1]):
+                        # Draw z stabiliser edges
                         if a_coefficients[k, l]:
                             div = (self.q * a_coefficients[k, l]) % self.field
                             if div == 1:
@@ -370,10 +357,19 @@ class BivariateBicycle:
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
                                 line.set_dash_capstyle('round')
 
-        for i in range(m//self.m):
-            for j in range((n//2)//self.l):
                 for k in range(b_coefficients.shape[0]):
                     for l in range(b_coefficients.shape[1]):
+                        # Draw x stabiliser edges
+                        if b_coefficients[k, l]:
+                            div = b_coefficients[k, l]
+                            if div == 1:
+                                ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')
+                            else:
+                                line, = ax.plot([0.5+j, 0.5+k+j-b_factors[0]], [i, 0.5-l+i+b_factors[1]], color='slategray')  
+                                line.set_dashes([16/div**2, 2, 16/div**2, 2])
+                                line.set_dash_capstyle('round')
+
+                        # Draw z stabiliser edges
                         if b_coefficients[k, l]:
                             div = ((self.field-self.q) * b_coefficients[k, l]) % self.field
                             if div == 1:
@@ -381,7 +377,8 @@ class BivariateBicycle:
                             else:
                                 line, = ax.plot([j, -k+j+b_factors[0]], [0.5+i, l+i-b_factors[1]], color='darkgray') 
                                 line.set_dashes([16/div**2, 2, 16/div**2, 2])
-                                line.set_dash_capstyle('round')
+                                line.set_dash_capstyle('round')                    
+                        
 
         # Draw boundary
         ax.plot([-0.25, -0.25], [-0.25, m//self.m-0.25], color='black', linewidth=0.7)
@@ -397,7 +394,10 @@ class BivariateBicycle:
 
         # Make plot look nice
         ax.set_axis_off()
-        ax.set_title('Tanner Graph')
+        if name:
+            ax.set_title(f'Tanner Graph of {name}')
+        else:
+            ax.set_title('Tanner Graph')
 
         # Add legend
         handles = ['X stabiliser', 'Z stabiliser', 'Left data', 'Right data']
