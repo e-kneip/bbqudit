@@ -49,6 +49,7 @@ class BivariateBicycle:
         if a.field != b.field:
             raise ValueError("Polynomials a and b must be over the same field")
         if not isprime(a.field):
+            print('Warning: Field is not prime.')
             warnings.warn("Field is not prime.", ValueWarning)
         if not (isinstance(name, str) or name == None):
             raise TypeError("name must be a string")
@@ -62,6 +63,12 @@ class BivariateBicycle:
         self.edges = self._edges()
         self.name = name
         self.x_logicals, self.z_logicals = self._compute_logicals()
+        if not self.x_logicals:
+            print('Warning: No X logicals found for these parameters.')
+            warnings.warn("No X logicals found for these parameters.", ValueWarning)
+        if not self.z_logicals:
+            print('Warning: No Z logicals found for these parameters.')
+            warnings.warn("No Z logicals found for these parameters.", ValueWarning)
 
     def __str__(self):
         """String representation of BivariateBicycle."""
@@ -161,8 +168,8 @@ class BivariateBicycle:
 
         # X logicals must be in the kernel of Hz and not the image of Hx^T
         ker_hz = Hz_gal.null_space()
+        rank = np.linalg.matrix_rank(Hx_gal)
         for vec in ker_hz:
-            rank = hx.shape[0]
             x_check = GF(np.vstack((x_check, vec)))
             if np.linalg.matrix_rank(x_check) > rank:
                 x_logicals.append(vec)
@@ -172,8 +179,8 @@ class BivariateBicycle:
 
         # Z logicals must be in the kernel of Hx and not the image of Hz^T
         ker_hx = Hx_gal.null_space()
+        rank = np.linalg.matrix_rank(Hz_gal)
         for vec in ker_hx:
-            rank = hz.shape[0]
             z_check = GF(np.vstack((z_check, vec)))
             if np.linalg.matrix_rank(z_check) > rank:
                 z_logicals.append(vec)
