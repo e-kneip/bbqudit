@@ -8,6 +8,7 @@ from sympy import isprime
 import warnings
 import matplotlib.patches as mpatches
 import galois
+from scipy.sparse import coo_matrix, hstack
 
 
 class ValueWarning(UserWarning):
