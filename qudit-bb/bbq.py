@@ -615,3 +615,201 @@ class BivariateBicycle:
             raise ValueError("Syndrome circuit does not match max depth syndrome circuit, check stabiliser orders")
 
         return circ
+
+    def construct_decoding_matrix(self, circ : list, error_rates : dict, num_cycles : int = 1) -> np.ndarray:
+        """Construct decoding matrix for a given syndrome circuit.
+        
+        Parameters
+        ----------
+        circ : list
+            List of gates in one cycle of the syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
+        error_rate : dict
+            Dictionary of error rates for keys [Meas, Prep, Idle, CNOT].
+        num_cycles : int
+            Number of cycles to repeat the syndrome circuit. Default is 1.
+        
+        Returns
+        -------
+        hx_eff : coo_matrix
+            Decoding matrix for X stabilisers.    
+        short_hx_eff : coo_matrix
+            Decoding matrix for X stabilisers without columns for logicals.    
+        hz_eff : coo_matrix
+            Decoding matrix for Z stabilisers.    
+        short_hz_eff : coo_matrix
+            Decoding matrix for Z stabilisers without columns for logicals.
+        channel_prob_x : list
+            List of probabilities for each X syndrome, i.e. each column in hx_eff.    
+        channel_prob_z : list
+            List of probabilities for each Z syndrome, i.e. each column in hz_eff.
+        """
+        if not (isinstance(error_rates, dict)):
+            raise TypeError("error_rates must be a dictionary")
+        for key in error_rates.keys():
+            if (key not in ['Meas', 'Prep', 'Idle', 'CNOT']) or (len(error_rates) != 4):
+                raise ValueError("error_rates must have keys ['Meas', 'Prep', 'Idle', 'CNOT']")
+            if not (isinstance(error_rates[key], float) and 0 <= error_rates[key] <= 1):
+                raise ValueError("error_rates must have values between 0 and 1")
+        if not (isinstance(num_cycles, int) and num_cycles > 0):
+            raise TypeError("num_cycles must be a positive integer")
+
+        l, m = self.l, self.m
+        field = self.field
+        qubits_dict, data_qubits = self.qubits_dict, self.data_qubits
+        x_logicals, z_logicals = self.x_logicals, self.z_logicals
+        x_checks, z_checks = self.x_checks, self.z_checks
+
+        # Construct repeated circuit
+        repeated_circ = circ * num_cycles
+
+        # Single error circuits
+        z_prob, z_circuit = [], []
+        x_prob, x_circuit = [], []
+        head = []
+        tail = repeated_circ.copy()
+        for gate in repeated_circ:
+            # assert gate[0] in ['CNOT', 'Idle', 'Meas_X', 'Meas_Z', 'Prep_X', 'Prep_Z']
+            if gate[0] == 'Meas_X':
+                # Meas_X error only affects Z detectors
+                z_circuit.append(head + [('Z', gate[1])] + tail)
+                z_prob.append(error_rates['Meas'])
+            if gate[0] == 'Meas_Z':
+                # Meas_Z error only affects X detectors
+                x_circuit.append(head + [('X', gate[1])] + tail)
+                x_prob.append(error_rates['Meas'])
+            head.append(gate)
+            tail.pop(0)
+            # assert repeated_circ == head + tail
+            if gate[0] == 'Prep_X':
+                # Prep_X error only affects Z detectors
+                z_circuit.append(head + [('Z', gate[1])] + tail)
+                z_prob.append(error_rates['Prep'])
+            if gate[0] == 'Prep_Z':
+                # Prep_Z error only affects X detectors
+                x_circuit.append(head + [('X', gate[1])] + tail)
+                x_prob.append(error_rates['Prep'])
+            if gate[0] == 'Idle':
+                # Idle error on Z detectors
+                z_circuit.append(head + [('Z', gate[1])] + tail)
+                z_prob.append(error_rates['Idle']*2/3)  # 3 possible Idle errors are X, Y, Z so Z is 2/3 (Y and Z)
+                # Idle error on X detectors
+                x_circuit.append(head + [('X', gate[1])] + tail)
+                x_prob.append(error_rates['Idle']*2/3)
+            if gate[0] == 'CNOT':
+                # Z error on control
+                z_circuit.append(head + [('Z', gate[1])] + tail)
+                z_prob.append(error_rates['CNOT']*4/15)  # possible CNOT errors are IX, IY, ..., ZZ so Z is 4/15 (IZ, IY, XZ and XY)
+                # Z error on target
+                z_circuit.append(head + [('Z', gate[2])] + tail)
+                z_prob.append(error_rates['CNOT']*4/15)
+                # Z error on both
+                z_circuit.append(head + [('ZZ', gate[1], gate[2])] + tail)
+                z_prob.append(error_rates['CNOT']*4/15)
+                # X error on control
+                x_circuit.append(head + [('X', gate[1])] + tail)
+                x_prob.append(error_rates['CNOT']*4/15)
+                # X error on target
+                x_circuit.append(head + [('X', gate[2])] + tail)
+                x_prob.append(error_rates['CNOT']*4/15)
+                # X error on both
+                x_circuit.append(head + [('XX', gate[1], gate[2])] + tail)
+                x_prob.append(error_rates['CNOT']*4/15)
+
+        # Execute each noisy X circuit and compute syndrome
+        # Add two noiseless syndrome cycles to end
+        cnt = 0
+        Hx_dict = {}
+        for x_circ in x_circuit:
+            syndrome_history, state, syndrome_map, err_cnt = self._simulate_x_circuit(x_circ + circ + circ)
+            assert err_cnt == 1
+            assert len(syndrome_history) == l * m * (num_cycles + 2)
+
+            # Compute final state of data qubits and logical effect
+            state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]
+            syndrome_final_logical = (np.array(z_logicals) @ state_data_qubits) % field
+
+            # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
+            syndrome_history_copy = syndrome_history.copy()
+            for check in z_checks:
+                pos = syndrome_map[check]
+                assert len(pos) == num_cycles + 2
+                for row in range(1, num_cycles + 2):
+                    syndrome_history[pos[row]] += syndrome_history_copy[pos[row-1]]
+            syndrome_history %= field
+
+            # Combine syndrome_history and syndrome_final_logical
+            syndrome_history_augmented = np.hstack([syndrome_history, syndrome_final_logical])
+
+            # Hx_dict maps flagged Z stabilisers to corresponding noisy circuit, i.e. Hx_dict[flagged_z_stab] = [noisy_circuit_1, noisy_circuit_2, ...]
+            supp = tuple(np.nonzero(syndrome_history_augmented)[0])
+            if supp in Hx_dict:
+                Hx_dict[supp].append(cnt)
+            else:
+                Hx_dict[supp] = [cnt]
+            cnt += 1
+
+        first_logical_row_x = l * m * (num_cycles + 2)
+        num_x_errors = len(Hx_dict)  # Number of distinct X syndrome histories
+        k = len(x_logicals) # Number of logical qubits
+        hx_eff, short_hx_eff = [], []
+        channel_prob_x = []
+        for supp in Hx_dict:
+            new_col = np.zeros((l * m * (num_cycles + 2) + k, 1), dtype=int)  # With the augmented part for logicals
+            new_col_short = np.zeros((l * m * (num_cycles + 2), 1), dtype=int)
+            new_col[list(supp), 0] = 1  # 1 indicates which stabiliser is flagged
+            new_col_short[:, 0] = new_col[0:first_logical_row_x, 0]
+            hx_eff.append(coo_matrix(new_col))
+            short_hx_eff.append(coo_matrix(new_col_short))
+            channel_prob_x.append(np.sum([x_prob[i] for i in Hx_dict[supp]]))  # Probability of a given x syndrome
+        hx_eff = hstack(hx_eff)  # Column = flagged stabilisers, row = noisy circuit
+        short_hx_eff = hstack(short_hx_eff)  # Shortened hx_eff without columns for logicals
+
+        # Execute each noisy Z circuit and compute syndrome
+        # Add two noiseless syndrome cycles to end
+        cnt = 0
+        Hz_dict = {}
+        for z_circ in z_circuit:
+            syndrome_history, state, syndrome_map, err_cnt = self._simulate_z_circuit(z_circ + circ + circ)
+            assert err_cnt == 1
+            assert len(syndrome_history) == l * m * (num_cycles + 2)
+
+            # Compute final state of data qubits and logical effect
+            state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]
+            syndrome_final_logical = (np.array(x_logicals) @ state_data_qubits) % field
+
+            # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
+            syndrome_history_copy = syndrome_history.copy()
+            for check in x_checks:
+                pos = syndrome_map[check]
+                assert len(pos) == num_cycles + 2
+                for row in range(1, num_cycles + 2):
+                    syndrome_history[pos[row]] += syndrome_history_copy[pos[row-1]]
+            syndrome_history %= field
+
+            # Combine syndrome_history and syndrome_final_logical
+            syndrome_history_augmented = np.hstack([syndrome_history, syndrome_final_logical])
+
+            # Hz_dict maps flagged X stabilisers to corresponding noisy circuit, i.e. Hz_dict[flagged_x_stab] = [noisy_circuit_1, noisy_circuit_2, ...]
+            supp = tuple(np.nonzero(syndrome_history_augmented)[0])
+            if supp in Hz_dict:
+                Hz_dict[supp].append(cnt)
+            else:
+                Hz_dict[supp] = [cnt]
+            cnt += 1
+
+        first_logical_row_z = l * m * (num_cycles + 2)
+        num_z_errors = len(Hz_dict)  # Number of distinct Z syndrome histories
+        hz_eff, short_hz_eff = [], []
+        channel_prob_z = []
+        for supp in Hz_dict:
+            new_col = np.zeros((l * m * (num_cycles + 2) + k, 1), dtype=int)  # With the augmented part for logicals
+            new_col_short = np.zeros((l * m * (num_cycles + 2), 1), dtype=int)
+            new_col[list(supp), 0] = 1  # 1 indicates which stabiliser is flagged
+            new_col_short[:, 0] = new_col[0:first_logical_row_z, 0]
+            hz_eff.append(coo_matrix(new_col))
+            short_hz_eff.append(coo_matrix(new_col_short))
+            channel_prob_z.append(np.sum([z_prob[i] for i in Hz_dict[supp]]))  # Probability of a given z syndrome
+        hz_eff = hstack(hz_eff)  # Column = flagged stabilisers, row = noisy circuit
+        short_hz_eff = hstack(short_hz_eff)  # Shortened hz_eff without columns for logicals
+
+        return hx_eff, short_hx_eff, hz_eff, short_hz_eff, channel_prob_x, channel_prob_z
