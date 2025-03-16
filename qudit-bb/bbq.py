@@ -7,6 +7,7 @@ from matplotlib.patches import Rectangle, Circle
 from sympy import isprime
 import warnings
 import matplotlib.patches as mpatches
+import galois
 
 
 class ValueWarning(UserWarning):
@@ -60,6 +61,7 @@ class BivariateBicycle:
         self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = self._qubits()
         self.edges = self._edges()
         self.name = name
+        self.x_logicals, self.z_logicals = self._compute_logicals()
 
     def __str__(self):
         """String representation of BivariateBicycle."""
@@ -145,6 +147,41 @@ class BivariateBicycle:
                 y = int(np.nonzero(A[j][:, i])[0][0])
                 edges[(check_name, len(A) + j)] = (('data_right', y), ((field - q) * int(A[j][y, i])) % field)
         return edges
+
+    def _compute_logicals(self):
+        """Compute logical operators for the code."""
+        hx, hz = self.hx, self.hz
+        field = self.field
+
+        # Set up Galois field array
+        GF = galois.GF(field)
+        Hx_gal, Hz_gal = GF(hx), GF(hz)
+        x_logicals, z_logicals = [], []
+        x_check, z_check = Hx_gal, Hz_gal
+
+        # X logicals must be in the kernel of Hz and not the image of Hx^T
+        ker_hz = Hz_gal.null_space()
+        for vec in ker_hz:
+            rank = hx.shape[0]
+            x_check = GF(np.vstack((x_check, vec)))
+            if np.linalg.matrix_rank(x_check) > rank:
+                x_logicals.append(vec)
+                rank += 1
+            else:
+                np.delete(x_check, -1, axis=0)
+
+        # Z logicals must be in the kernel of Hx and not the image of Hz^T
+        ker_hx = Hx_gal.null_space()
+        for vec in ker_hx:
+            rank = hz.shape[0]
+            z_check = GF(np.vstack((z_check, vec)))
+            if np.linalg.matrix_rank(z_check) > rank:
+                z_logicals.append(vec)
+                rank += 1
+            else:
+                np.delete(z_check, -1, axis=0)
+
+        return [x_log.__array__(dtype=int) for x_log in x_logicals], [z_log.__array__(dtype=int) for z_log in z_logicals]
 
     def _simulate_z_circuit(self, circ : list):
         """Propagate a Z error through a circuit.
