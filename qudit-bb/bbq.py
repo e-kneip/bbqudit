@@ -343,6 +343,147 @@ class BivariateBicycle:
                 continue
         return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt            
 
+    def _generate_noisy_circuit(self, circ, error_rates):
+        """Generate circuit with noise, i.e. insert errors wrt error_rates dict.
+        
+        Parameters
+        ----------
+        circ : list
+            List of gates in the circuit.
+        error_rates : dict
+            Dictionary with error rates with keys ['Meas', 'Prep', 'Idle', 'CNOT'].
+            
+        Returns
+        -------
+        noisy_circ : list
+            List of gates in the circuit with errors.
+        err_cnt : int
+            Number of errors inserted.
+        """
+        noisy_circ = []
+        err_cnt = 0
+        field = self.field
+        for gate in circ:
+            assert gate[0] in ['CNOT', 'Prep_X', 'Prep_Z', 'Meas_X', 'Meas_Z', 'Idle'], 'Invalid gate type.'
+            if gate[0] == 'Meas_X':
+                # Meas_X error only affects Z stabilisers
+                if np.random.uniform() <= error_rates['Meas']:
+                    # Random Z^k error for k = 1, 2, ..., field-1
+                    power = np.random.randint(field - 1)
+                    noisy_circ += [('Z', gate[1])] * (power + 1)
+                    err_cnt += 1
+                noisy_circ.append(gate)
+                continue
+            if gate[0] == 'Meas_Z':
+                # Meas_Z error only affects X stabilisers
+                if np.random.uniform() <= error_rates['Meas']:
+                    # Random X^k error for k = 1, 2, ..., field-1
+                    power = np.random.randint(field - 1)
+                    noisy_circ += [('X', gate[1])] * (power + 1)
+                    err_cnt += 1
+                noisy_circ.append(gate)
+                continue
+            if gate[0] == 'Prep_X':
+                # Prep_X error only affects Z stabilisers
+                noisy_circ.append(gate)
+                if np.random.uniform() <= error_rates['Prep']:
+                    # Random Z^k error for k = 1, 2, ..., field-1
+                    power = np.random.randint(field - 1)
+                    noisy_circ += [('Z', gate[1])] * (power + 1)
+                    err_cnt += 1
+                continue
+            if gate[0] == 'Prep_Z':
+                # Prep_Z error only affects X stabilisers
+                noisy_circ.append(gate)
+                if np.random.uniform() <= error_rates['Prep']:
+                    # Random X^k error for k = 1, 2, ..., field-1
+                    power = np.random.randint(field - 1)
+                    noisy_circ += [('X', gate[1])] * (power + 1)
+                    err_cnt += 1
+                continue
+            if gate[0] == 'Idle':
+                # Idle error can be X^k, Y^k or Z^k
+                if np.random.uniform() <= error_rates['Idle']:
+                    ptype = np.random.randint(3)
+                    if ptype == 0:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('X', gate[1])] * (power + 1)
+                    elif ptype == 1:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Y', gate[1])] * (power + 1)
+                    else:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Z', gate[1])] * (power + 1)
+                    err_cnt += 1
+                continue
+            if gate[0] == 'CNOT':
+                # CNOT error can be X^k, Y^k, Z^k or combinations of them
+                noisy_circ.append(gate)
+                if np.random.uniform() <= error_rates['CNOT']:
+                    err_cnt += 1
+                    ptype = np.random.randint(15)
+                    if ptype == 0:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('X', gate[1])] * (power + 1)
+                        continue
+                    if ptype == 1:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Y', gate[1])] * (power + 1)
+                        continue
+                    if ptype == 2:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Z', gate[1])] * (power + 1)
+                        continue
+                    if ptype == 3:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('X', gate[2])] * (power + 1)
+                        continue
+                    if ptype == 4:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Y', gate[2])] * (power + 1)
+                        continue
+                    if ptype == 5:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('Z', gate[2])] * (power + 1)
+                        continue
+                    if ptype == 6:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('XX', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 7:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('YY', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 8:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('ZZ', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 9:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('XY', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 10:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('YX', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 11:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('YZ', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 12:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('ZY', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 13:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('XZ', gate[1], gate[2])] * (power + 1)
+                        continue
+                    if ptype == 14:
+                        power = np.random.randint(field - 1)
+                        noisy_circ += [('ZX', gate[1], gate[2])] * (power + 1)
+                        continue
+        return noisy_circ, err_cnt
+
     def draw(self):
         """Draw the Bivariate Bicycle code Tanner graph."""
         # Define parameters
