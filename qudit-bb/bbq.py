@@ -215,7 +215,7 @@ class BivariateBicycle:
         n = 2 * self.l * self.m
 
         syndrome_history, syndrome_map = [], {}
-        state = np.zeros(2*n)  # Initial state with no errors
+        state = np.zeros(2*n, dtype=int)  # Initial state with no errors
         err_cnt, syn_cnt = 0, 0
         for gate in circ:
             if gate[0] == 'CNOT':
@@ -291,7 +291,7 @@ class BivariateBicycle:
         n = 2 * self.l * self.m
 
         syndrome_history, syndrome_map = [], {}
-        state = np.zeros(2*n)  # Initial state with no errors
+        state = np.zeros(2*n, dtype=int)  # Initial state with no errors
         err_cnt, syn_cnt = 0, 0
         for gate in circ:
             if gate[0] == 'CNOT':
