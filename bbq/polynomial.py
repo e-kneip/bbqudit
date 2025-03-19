@@ -1,7 +1,7 @@
 """Implementation of the Polynomial class over finite fields."""
 
 import numpy as np
-from utils import cyclic_permutation
+from bbq.utils import cyclic_permutation
 
 class Polynomial:
     """Polynomial class over finite fields.

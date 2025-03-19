@@ -1,6 +1,6 @@
 """Implementation of the BivariateBicycle class for qudits."""
 
-from polynomial import Polynomial
+from bbq.polynomial import Polynomial
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
@@ -951,7 +951,7 @@ class BivariateBicycle:
             hz_eff.append(coo_matrix(new_col))
             short_hz_eff.append(coo_matrix(new_col_short))
             channel_prob_z.append(np.sum([z_prob[i] for i in Hz_dict[supp]]))  # Probability of a given z syndrome
-        hz_eff = hstack(hz_eff)  # Column = flagged stabilisers, row = noisy circuit
+        hz_eff = hstack(hz_eff)  # Row = flagged stabilisers, column = noisy circuit
         short_hz_eff = hstack(short_hz_eff)  # Shortened hz_eff without columns for logicals
 
         return hx_eff, short_hx_eff, hz_eff, short_hz_eff, channel_prob_x, channel_prob_z
