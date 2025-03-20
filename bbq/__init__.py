@@ -1,2 +1,2 @@
 from .polynomial import Polynomial
-from .bbq import BivariateBicycle
+from .bbq_code import BivariateBicycle
