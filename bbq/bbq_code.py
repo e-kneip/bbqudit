@@ -189,6 +189,13 @@ class BivariateBicycle:
             else:
                 np.delete(z_check, -1, axis=0)
 
+        # Check correct number of logicals found: k = n - m
+        assert len(x_logicals) == len(z_logicals)
+        m = np.linalg.matrix_rank(Hx_gal) + np.linalg.matrix_rank(Hz_gal)
+        n = self.hx.shape[1]
+        if not len(x_logicals) == n - m:
+            raise ValueError("Incorrect number of logical operators found.")
+
         return [x_log.__array__(dtype=int) for x_log in x_logicals], [z_log.__array__(dtype=int) for z_log in z_logicals]
 
     def _simulate_z_circuit(self, circ : list):
