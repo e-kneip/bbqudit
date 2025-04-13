@@ -2,7 +2,6 @@ Lil bugs:
  -> should be using the Hx, Hy to make tanner instead of polys?
  -> am I modelling qudit errors right? i.e. with some prob an error occurs and which of Z^k (or X^k) is uniform also for CNOT only do (XY)^k not X^kY^k'
  -> err_cnt might be completely wrong as doing += 1 when apply X^k (or Z^k) error...
- -> some examples have no logicals...
 
 Big bugs:
  -> not doing mod in power (ie mod the width of the patch, l, m), will need to extend length of row of coefficients to width of patch and then roll
@@ -13,26 +12,10 @@ DISTANCE ESTIMATE
  -> do decoder with one row =1 so finds low weight logical
  -> do a big for loop multiplying logicals with stabilisers and checking the weight and take minimum
 
-LOGICALS
---------
- -> check n-m=k where m is independent stabilisers to make sure all okay in find logicals function
-
-SIMULATION
-----------
- -> write decoder...
- -> SIMPLIFY: do just one cycle of syndrome measurement (ie no syndrome history) and one iteration
-
-
-Help idk what's happening
--------------------------
- -> toric code over field 5 only has logical ops for some sizes, e.g. does for 2x2 but not 3x3. Would expect there is always the logical XXX..., ZZZ... on horizontal/vertical
-
 
 DO THIS NEXT
 ------------
  -> check all the hx_eff used in x_check, is it right way around?
- -> is the p being redefined in func inside dosd so that doesnt need -= 1000?
- -> does dosd ever fail ie do we need to say whether it was successful?
  -> why do we do 2 noise free cycles at end?
 
 
@@ -40,3 +23,8 @@ FUTURE DIRECTIONS
 -----------------
  -> find distance exactly
  -> know when the qudit generalisation makes non-0 k
+
+
+FOR PRESENTATION
+----------------
+ -> find parameters of Gross code esque
