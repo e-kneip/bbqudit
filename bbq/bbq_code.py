@@ -874,8 +874,8 @@ class BivariateBicycle:
             assert len(syndrome_history) == l * m * (num_cycles + 2)
 
             # Compute final state of data qubits and logical effect
-            state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]
-            syndrome_final_logical = (np.array(z_logicals) @ state_data_qubits) % field
+            state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]  # 1 indicates X error
+            syndrome_final_logical = (np.array(z_logicals) @ state_data_qubits) % field  # Check if X error flips logical Z outcome
 
             # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
             syndrome_history_copy = syndrome_history.copy()
@@ -909,9 +909,9 @@ class BivariateBicycle:
             new_col_short[:, 0] = new_col[0:first_logical_row_x, 0]
             hx_eff.append(coo_matrix(new_col))
             short_hx_eff.append(coo_matrix(new_col_short))
-            channel_prob_x.append(np.sum([x_prob[i] for i in Hx_dict[supp]]))  # Probability of a given x syndrome
-        hx_eff = hstack(hx_eff)  # Column = flagged stabilisers, row = noisy circuit
-        short_hx_eff = hstack(short_hx_eff)  # Shortened hx_eff without columns for logicals
+            channel_prob_x.append(np.sum([x_prob[i] for i in Hx_dict[supp]]))  # Probability of a given X syndrome
+        hx_eff = hstack(hx_eff)  # Row = flagged detectors (+ logical effect), column = eror mechanism (with same logical effect)
+        short_hx_eff = hstack(short_hx_eff)  # Shortened hx_eff without rows for logicals
 
         # Execute each noisy Z circuit and compute syndrome
         # Add two noiseless syndrome cycles to end
@@ -957,8 +957,8 @@ class BivariateBicycle:
             new_col_short[:, 0] = new_col[0:first_logical_row_z, 0]
             hz_eff.append(coo_matrix(new_col))
             short_hz_eff.append(coo_matrix(new_col_short))
-            channel_prob_z.append(np.sum([z_prob[i] for i in Hz_dict[supp]]))  # Probability of a given z syndrome
-        hz_eff = hstack(hz_eff)  # Row = flagged stabilisers, column = noisy circuit
-        short_hz_eff = hstack(short_hz_eff)  # Shortened hz_eff without columns for logicals
+            channel_prob_z.append(np.sum([z_prob[i] for i in Hz_dict[supp]]))  # Probability of a given Z syndrome
+        hz_eff = hstack(hz_eff)  # Row = flagged detectors (+ logical effect), column = eror mechanism (with same logical effect)
+        short_hz_eff = hstack(short_hz_eff)  # Shortened hz_eff without rows for logicals
 
         return hx_eff, short_hx_eff, hz_eff, short_hz_eff, channel_prob_x, channel_prob_z
