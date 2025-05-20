@@ -17,6 +17,7 @@ DO THIS NEXT
 ------------
  -> check all the hx_eff used in x_check, is it right way around?
  -> why do we do 2 noise free cycles at end?
+ -> initialisation of bbcode uses qubit instead of qudit!!!
 
 
 FUTURE DIRECTIONS
