@@ -1,14 +1,15 @@
 """Implementation of the BivariateBicycle class for qudits."""
 
-from bbq.polynomial import Polynomial
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Circle
-from sympy import isprime
 import warnings
 import matplotlib.patches as mpatches
 import galois
+
 from scipy.sparse import coo_matrix, hstack
+from matplotlib.patches import Rectangle, Circle
+from sympy import isprime
+from bbq.polynomial import Polynomial
 
 
 class ValueWarning(UserWarning):
