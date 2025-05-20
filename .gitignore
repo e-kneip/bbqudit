@@ -171,3 +171,7 @@ cython_debug/
 .pypirc
 
 # ignore todo list
+stas/dosd.py
+stas/qudit_toric_code.py
+stas/visualisation.py
+niall.py
