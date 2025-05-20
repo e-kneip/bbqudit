@@ -3,7 +3,7 @@
 import numpy as np
 import galois
 
-from bbq.utils import err_to_det, det_to_err
+from bbq.utils import err_to_det, det_to_err, rref
 
 
 def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
@@ -211,7 +211,39 @@ def osd(
     posteriors: np.ndarray,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
-    m, n = h_eff.shape
+    """
+    Decode the syndrome using an ordered statistics decoder.
+
+    Parameters
+    ----------
+    field : int
+        The qudit dimension.
+    h_eff : nd.array
+        The effective parity check matrix.
+    syndrome : nd.array
+        The syndrome of the error.
+    posteriors : nd.array
+        The posterior probabilities of each error mechanism.
+    debug : bool
+        Whether to return debug information (error, success, pre_proccessing_success, posteriors), default is False.
+
+    Returns
+    -------
+    error : nd.array
+        The predicted error mechanism.
+    bool
+        Whether the decoding was successful.
+    """
+    if not isinstance(field, int) or field < 2:
+        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(h_eff, np.ndarray):
+        raise TypeError("h_eff must be a numpy array")
+    if not isinstance(syndrome, np.ndarray):
+        raise TypeError("syndrome must be a numpy array")
+    if not isinstance(posteriors, np.ndarray):
+        raise TypeError("posteriors must be a numpy array")
+
+    n_detectors, n_errors = h_eff.shape
 
     ##################################################################################
     # For qubits, do normal OSD (need to be careful with error powers for qudits *help*)
@@ -235,11 +267,9 @@ def osd(
     # priors_perm = prior[col_rank_perm] ??? or the deleted posteriors???
 
     # Find the reduced row echelon form (RREF) and identify pivot columns
-    H_rref_gf, syndrome_rref_gf, pivot_cols = rref_with_pivots(
-        H_ordered_gf, syndrome_gf
-    )
+    H_rref_gf, syndrome_rref_gf, pivot_cols = rref(H_ordered_gf, syndrome_gf)
     m_ind = H_rref_gf.shape[0]
-    non_pivot_cols = [i for i in range(n) if i not in pivot_cols]
+    non_pivot_cols = [i for i in range(n_errors) if i not in pivot_cols]
 
     # Select the first rank(h_gf) linearly independent columns as basis set in P, others in B
     P = H_rref_gf[:, pivot_cols]
@@ -247,13 +277,13 @@ def osd(
     B = H_rref_gf[:, non_pivot_cols]
 
     def sln_from(g):
-        assert g.shape == (n - m_ind,)
+        assert g.shape == (n_errors - m_ind,)
         remainder = syndrome_rref_gf - B @ g
         fix = np.linalg.solve(P, remainder)
         assert (P @ fix + B @ g == syndrome_rref_gf).all()
 
         score = 0
-        sln = GF.Zeros(n)
+        sln = GF.Zeros(n_errors)
         # Find prob of basis set
         for i in range(m_ind):
             p = priors_perm[pivot_cols[i], fix[i]]
@@ -263,7 +293,7 @@ def osd(
             else:
                 score -= 1000
 
-        for i in range(n - m_ind):
+        for i in range(n_errors - m_ind):
             p = priors_perm[non_pivot_cols[i], g[i]]
             sln[non_pivot_cols[i]] = g[i]
             if p > 0:
@@ -280,7 +310,7 @@ def osd(
         return np.array(sln[col_rank_inv_perm]), score
 
     # OSD_0 solution
-    best_solution, best_score = sln_from(GF.Zeros(n - m_ind))
+    best_solution, best_score = sln_from(GF.Zeros(n_errors - m_ind))
     assert ((h_eff @ best_solution) % field == syndrome).all()
 
     if debug:
@@ -289,8 +319,44 @@ def osd(
         return best_solution, True
 
 
-def d_osd():
-    pass
+def d_osd(
+    field: int,
+    h_eff: np.ndarray,
+    syndrome: np.ndarray,
+    posteriors: np.ndarray,
+    debug: bool = False,
+) -> tuple[np.ndarray, bool]:
+    """
+    Decode the syndrome using D+OSD (Dijkstra and Ordered Statistics Decoder).
+
+    Parameters
+    ----------
+    field : int
+        The qudit dimension.
+    h_eff : nd.array
+        The effective parity check matrix.
+    syndrome : nd.array
+        The syndrome of the error.
+    posteriors : nd.array
+        The posterior probabilities of each error mechanism.
+    debug : bool
+        Whether to return debug information (error, success, pre_proccessing_success, posteriors), default is False.
+
+    Returns
+    -------
+    error : nd.array
+        The predicted error mechanism.
+    bool
+        Whether the decoding was successful.
+    """
+    if not isinstance(field, int) or field < 2:
+        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(h_eff, np.ndarray):
+        raise TypeError("h_eff must be a numpy array")
+    if not isinstance(syndrome, np.ndarray):
+        raise TypeError("syndrome must be a numpy array")
+    if not isinstance(posteriors, np.ndarray):
+        raise TypeError("posteriors must be a numpy array")
 
 
 def bp_osd():
