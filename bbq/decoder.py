@@ -209,6 +209,7 @@ def osd(
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     posteriors: np.ndarray,
+    certainties: np.ndarray = None,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
@@ -224,6 +225,8 @@ def osd(
         The syndrome of the error.
     posteriors : nd.array
         The posterior probabilities of each error mechanism.
+    certainties : nd.array
+        The likelihoods of each error mechanism for ordering, default None sets certainties equal to posteriors.
     debug : bool
         Whether to return debug information (error, success, pre_proccessing_success, posteriors), default is False.
 
@@ -242,6 +245,11 @@ def osd(
         raise TypeError("syndrome must be a numpy array")
     if not isinstance(posteriors, np.ndarray):
         raise TypeError("posteriors must be a numpy array")
+    if not (isinstance(certainties, np.ndarray) or certainties is None):
+        raise TypeError("certainties must be a numpy array or None")
+
+    if certainties is None:
+        certainties = posteriors.copy()
 
     n_detectors, n_errors = h_eff.shape
 
@@ -323,7 +331,7 @@ def d_osd(
     field: int,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
-    posteriors: np.ndarray,
+    prior: np.ndarray,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
@@ -337,10 +345,10 @@ def d_osd(
         The effective parity check matrix.
     syndrome : nd.array
         The syndrome of the error.
-    posteriors : nd.array
-        The posterior probabilities of each error mechanism.
+    prior : nd.array
+        The prior probabilities of each error mechanism.
     debug : bool
-        Whether to return debug information (error, success, pre_proccessing_success, posteriors), default is False.
+        Whether to return debug information (error, success, d_success, posteriors), default is False.
 
     Returns
     -------
@@ -355,9 +363,64 @@ def d_osd(
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
         raise TypeError("syndrome must be a numpy array")
-    if not isinstance(posteriors, np.ndarray):
-        raise TypeError("posteriors must be a numpy array")
+    if not isinstance(prior, np.ndarray):
+        raise TypeError("prior must be a numpy array")
+
+    error_distances = -dijkstra(
+        h_eff, syndrome
+    )  # negative for ordering low distance = high likelihood
+    return osd(field, h_eff, syndrome, prior, error_distances, debug)
 
 
-def bp_osd():
-    pass
+def bp_osd(
+    field: int,
+    h_eff: np.ndarray,
+    syndrome: np.ndarray,
+    prior: np.ndarray,
+    max_iter: int = 1000,
+    debug: bool = False,
+) -> tuple[np.ndarray, bool]:
+    """
+    Decode the syndrome using D+OSD (Dijkstra and Ordered Statistics Decoder).
+
+    Parameters
+    ----------
+    field : int
+        The qudit dimension.
+    h_eff : nd.array
+        The effective parity check matrix.
+    syndrome : nd.array
+        The syndrome of the error.
+    prior : nd.array
+        The prior probabilities of each error mechanism.
+    debug : bool
+        Whether to return debug information (error, success, bp_success, posteriors), default is False.
+
+    Returns
+    -------
+    error : nd.array
+        The predicted error mechanism.
+    bool
+        Whether the decoding was successful.
+    """
+    if not isinstance(field, int) or field < 2:
+        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(h_eff, np.ndarray):
+        raise TypeError("h_eff must be a numpy array")
+    if not isinstance(syndrome, np.ndarray):
+        raise TypeError("syndrome must be a numpy array")
+    if not isinstance(prior, np.ndarray):
+        raise TypeError("prior must be a numpy array")
+    if not (isinstance(max_iter, int) and max_iter > 0):
+        raise ValueError("max_iter must be a positive integer")
+
+    error, success, bp_success, posterior = belief_propagation(
+        field, h_eff, syndrome, prior, max_iter, debug=True
+    )
+    if success:
+        if debug:
+            return error, success, bp_success, posterior
+        else:
+            return error, success
+
+    return osd(field, h_eff, syndrome, posterior, None, debug)
