@@ -223,7 +223,9 @@ def _decompose(field, h_eff, syndrome):
     syndrome_gf = GF(syndrome.copy())
 
     # Find the reduced row echelon form (RREF) and identify pivot columns
-    h_rref, syndrome_rref, pivot_cols = rref(h_gf, syndrome_gf)
+    h_rref, syndrome_rref, pivot_cols, pivots = rref(
+        h_gf, syndrome_gf
+    )  # may need pivots for qudits???
     rank = h_rref.shape[0]
     non_pivot_cols = [i for i in range(h_eff.shape[1]) if i not in pivot_cols]
 
@@ -244,7 +246,7 @@ def _rank_errors(
     syndrome_rref,
     B,
     P,
-    certainties,
+    posterior,
     pivot_cols,
     non_pivot_cols,
 ):
@@ -265,7 +267,7 @@ def _rank_errors(
     error = GF.Zeros(n_errors)
 
     for i in range(rank):
-        p = certainties[pivot_cols[i], fix[i]]
+        p = posterior[pivot_cols[i], fix[i]]
         error[pivot_cols[i]] = fix[i]
         if p > 0:
             score += np.log(p)
@@ -273,7 +275,7 @@ def _rank_errors(
             score -= 1000
 
     for i in range(n_errors - rank):
-        p = certainties[non_pivot_cols[i], g[i]]
+        p = posterior[non_pivot_cols[i], g[i]]
         error[non_pivot_cols[i]] = g[i]
         if p > 0:
             score += np.log(p)
@@ -290,9 +292,9 @@ def osd(
     field: int,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
-    order: int,
     posterior: np.ndarray,
     certainties: np.ndarray = None,
+    order: int = 0,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
@@ -306,12 +308,12 @@ def osd(
         The effective parity check matrix.
     syndrome : nd.array
         The syndrome of the error.
-    order : int
-        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider.
     posterior : nd.array
         The posterior probabilities of each error mechanism.
     certainties : nd.array
         The likelihoods of each error mechanism for ordering, default None constructs certainties from posterior.
+    order : int
+        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
     debug : bool
         Whether to return debug information (error, success, pre_proccessing_success, posterior), default is False.
 
@@ -349,18 +351,14 @@ def osd(
     # Step 1: order the errors by likelihood
     permutation, inv_permutation = _find_permutation(certainties)
     h_eff = h_eff[:, permutation]
-    certainties = certainties[
-        permutation
+    posterior = posterior[
+        permutation, :
     ]  # potentially want sth more complicated for qudits???
 
     # Step 2: decompose h_eff into rank(h_eff) linearly independent columns (P) and the remainder (B) using rref
     P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref = _decompose(
         field, h_eff, syndrome
     )
-
-    # Invert permutation
-    certainties = certainties[inv_permutation]
-    h_eff = h_eff[:, inv_permutation]
 
     # Step 3: solve (wrt order) for the error mechanism with highest likelihood
     if order == 0:
@@ -373,14 +371,19 @@ def osd(
             syndrome_rref,
             B,
             P,
-            certainties,
+            posterior,
             pivot_cols,
             non_pivot_cols,
         )
         error = error[inv_permutation]
-        assert ((h_eff @ error) % field == syndrome).all()
     else:
         raise NotImplementedError("OSD with order > 0 is not implemented yet.")
+
+    # Invert permutation
+    h_eff = h_eff[:, inv_permutation]
+    posterior = posterior[inv_permutation, :]
+
+    assert ((h_eff @ error) % field == syndrome).all()
 
     if debug:
         return error, True, False, posterior
@@ -393,6 +396,7 @@ def d_osd(
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     prior: np.ndarray,
+    order: int = 0,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
@@ -408,6 +412,8 @@ def d_osd(
         The syndrome of the error.
     prior : nd.array
         The prior probabilities of each error mechanism.
+    order : int
+        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
     debug : bool
         Whether to return debug information (error, success, d_success, posteriors), default is False.
 
@@ -430,7 +436,7 @@ def d_osd(
     certainties = -dijkstra(
         h_eff, syndrome
     )  # negative for ordering: low distance = high likelihood
-    return osd(field, h_eff, syndrome, prior, certainties, debug)
+    return osd(field, h_eff, syndrome, prior, certainties, order, debug)
 
 
 def bp_osd(
@@ -439,6 +445,7 @@ def bp_osd(
     syndrome: np.ndarray,
     prior: np.ndarray,
     max_iter: int = 1000,
+    order: int = 0,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
@@ -454,6 +461,10 @@ def bp_osd(
         The syndrome of the error.
     prior : nd.array
         The prior probabilities of each error mechanism.
+    max_iter : int
+        The maximum number of iterations for belief propagation, default is 1000.
+    order : int
+        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
     debug : bool
         Whether to return debug information (error, success, bp_success, posteriors), default is False.
 
@@ -487,4 +498,4 @@ def bp_osd(
     # Qubit case: use only likelihood of X/Z error to rank h_eff columns, qudit case: tbd
     certainties = np.delete(posterior, 0, axis=1)
 
-    return osd(field, h_eff, syndrome, posterior, certainties, debug)
+    return osd(field, h_eff, syndrome, posterior, certainties, order, debug)
