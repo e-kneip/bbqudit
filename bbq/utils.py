@@ -1,6 +1,7 @@
-"""Utility functions for the qudit-bivariate-bicycle package."""
+"""Utility functions for the bbqudit package."""
 
 import numpy as np
+import galois
 
 
 def cyclic_permutation(dim: int, shift: int) -> np.ndarray:
@@ -62,64 +63,68 @@ def det_to_err(h_eff: np.ndarray) -> dict:
     return det_neighourhood
 
 
-def rref(A, v, x=None):
+def rref(
+    A: galois.FieldArray, v: galois.FieldArray
+) -> tuple[galois.FieldArray, galois.FieldArray, list[int]]:
     """
-    Perform Gaussian elimination to find the reduced row echelon form (RREF).
-    Also identifies the pivot columns.
-    Also reduces a vector to keep a linear system invariant.
+    Perform Gaussian elimination on a linear system to find the reduced row echelon form (RREF) with pivots.
 
     Parameters
     ----------
-    A : Galois field array
+    A : galois.FieldArray
         Galois field matrix to row reduce
+    v : galois.FieldArray
+        Galois field vector to row reduce
 
     Returns
     -------
-    A_rref : Galois field array
+    A_rref : galois.FieldArray
         Row-reduced form of A
-    pivots : list
+    v_rref : galois.FieldArray
+        Row-reduced form of v
+    pivot_cols : list[int]
         Indices of pivot columns
+    pivots : list[int]
+        Pivot values
     """
-    # Get a copy to avoid modifying the original
+
     A_rref = A.copy()
     v_rref = v.copy()
     m, n = A_rref.shape
     assert v.shape == (m,)
-    # assert (A_rref @ x == v_rref).all()
 
     # Track the pivot positions
     pivot_cols = []
     pivot_rows = []
+    pivots = []
 
     # Iterate through columns
-    for c in range(n):
-        # Find pivot in column c
-        for r in range(m):
-            if A_rref[r, c] != 0 and r not in pivot_rows:
+    for col in range(n):
+        # Find pivot in column col
+        for row in range(m):
+            if A_rref[row, col] != 0 and row not in pivot_rows:
                 break
         else:
             continue
 
-        # Record this column as a pivot column
-        pivot_cols.append(c)
-        pivot_rows.append(r)
+        pivot = A_rref[row, col]
+
+        # Record the pivot
+        pivot_cols.append(col)
+        pivot_rows.append(row)
+        pivots.append(pivot)
 
         # Scale the pivot row to make the pivot element 1
-        pivot = A_rref[r, c]
-        A_rref[r] = A_rref[r] / pivot
-        v_rref[r] = v_rref[r] / pivot
+        A_rref[row] = A_rref[row] / pivot
+        v_rref[row] = v_rref[row] / pivot
 
         # Eliminate other elements in the pivot column
         for i in range(m):
-            if i != r and A_rref[i, c] != 0:
-                v_rref[i] = v_rref[i] - A_rref[i, c] * v_rref[r]
-                A_rref[i] = A_rref[i] - A_rref[i, c] * A_rref[r]
+            if i != row and A_rref[i, col] != 0:
+                v_rref[i] -= A_rref[i, col] * v_rref[row]
+                A_rref[i] -= A_rref[i, col] * A_rref[row]
 
-        # If we've exhausted all rows, we're done
         if len(pivot_rows) == m:
             break
 
-    # if len(pivot_rows) < A.shape[0]:
-    #     print("Matrix is not full rank.")
-
-    return A_rref[sorted(pivot_rows)], v_rref[sorted(pivot_rows)], pivot_cols
+    return A_rref[sorted(pivot_rows)], v_rref[sorted(pivot_rows)], pivot_cols, pivots
