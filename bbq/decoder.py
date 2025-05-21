@@ -99,7 +99,7 @@ def _error_to_check_message(prior, P, Q, err_neighbourhood):
 
 def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     """Calculate the posterior probabilities and make hard decision on error."""
-    posteriors = np.zeros_like(prior.shape)
+    posteriors = np.zeros_like(prior)
     error = np.zeros(n_errors, dtype=int)
 
     for i, dets in err_neighbourhood.items():
@@ -281,6 +281,7 @@ def _rank_errors(
             score += np.log(p)
         else:
             score -= 1000
+    # all of the for loop ranking above could be done with lambda functions???
 
     # Assert syndrome is satisfied
     assert (h_rref @ error == syndrome_rref).all()
