@@ -204,11 +204,94 @@ def belief_propagation(
     return posteriors, False
 
 
+def _find_permutation(certainties):
+    """Find the permutation of the error mechanisms based on their likelihood."""
+
+    permutation = np.argsort(-certainties, axis=None)  # high certainty = low index
+    inv_permutation = np.empty_like(permutation)
+    inv_permutation[permutation] = np.arange(len(permutation))
+
+    return permutation, inv_permutation
+
+
+def _decompose(field, h_eff, syndrome):
+    """Decompose h_eff into rank(h_eff) linearly independent columns (P) and the remainder (B) using rref."""
+
+    # Convert to galois field
+    GF = galois.GF(field)
+    h_gf = GF(h_eff.copy())
+    syndrome_gf = GF(syndrome.copy())
+
+    # Find the reduced row echelon form (RREF) and identify pivot columns
+    h_rref, syndrome_rref, pivot_cols = rref(h_gf, syndrome_gf)
+    rank = h_rref.shape[0]
+    non_pivot_cols = [i for i in range(h_eff.shape[1]) if i not in pivot_cols]
+
+    # Select the first rank(h_gf) linearly independent columns as basis set in P, others in B
+    P = h_rref[:, pivot_cols]
+    assert P.shape == (rank, rank)
+    B = h_rref[:, non_pivot_cols]
+
+    return P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref
+
+
+def _rank_errors(
+    g,
+    field,
+    n_errors,
+    rank,
+    h_rref,
+    syndrome_rref,
+    B,
+    P,
+    certainties,
+    pivot_cols,
+    non_pivot_cols,
+):
+    """Calculate the error mechanism, satisfying the syndrome, with highest likelihood"""
+
+    assert (
+        g.shape == (n_errors - rank,)
+    )  # could get rid of this assert if inputs are obvious (osd_0 yes, check for higher orders)
+    GF = galois.GF(field)
+
+    # Solve linear system
+    remainder = syndrome_rref - B @ g
+    fix = np.linalg.solve(P, remainder)
+    assert (P @ fix + B @ g == syndrome_rref).all()
+
+    # Rank the errors by likelihood
+    score = 0
+    error = GF.Zeros(n_errors)
+
+    for i in range(rank):
+        p = certainties[pivot_cols[i], fix[i]]
+        error[pivot_cols[i]] = fix[i]
+        if p > 0:
+            score += np.log(p)
+        else:
+            score -= 1000
+
+    for i in range(n_errors - rank):
+        p = certainties[non_pivot_cols[i], g[i]]
+        error[non_pivot_cols[i]] = g[i]
+        if p > 0:
+            score += np.log(p)
+        else:
+            score -= 1000
+
+    # Assert syndrome is satisfied
+    assert (h_rref @ error == syndrome_rref).all()
+
+    return np.array(error), score
+
+
 def osd(
     field: int,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
-    posteriors: np.ndarray,
+    order: int,
+    posterior: np.ndarray,
     certainties: np.ndarray = None,
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
@@ -223,12 +306,14 @@ def osd(
         The effective parity check matrix.
     syndrome : nd.array
         The syndrome of the error.
-    posteriors : nd.array
+    order : int
+        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider.
+    posterior : nd.array
         The posterior probabilities of each error mechanism.
     certainties : nd.array
-        The likelihoods of each error mechanism for ordering, default None sets certainties equal to posteriors.
+        The likelihoods of each error mechanism for ordering, default None constructs certainties from posterior.
     debug : bool
-        Whether to return debug information (error, success, pre_proccessing_success, posteriors), default is False.
+        Whether to return debug information (error, success, pre_proccessing_success, posterior), default is False.
 
     Returns
     -------
@@ -243,88 +328,64 @@ def osd(
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
         raise TypeError("syndrome must be a numpy array")
-    if not isinstance(posteriors, np.ndarray):
-        raise TypeError("posteriors must be a numpy array")
+    if not isinstance(order, int) or order < 0:
+        raise ValueError("order must be a non-negative integer")
+    if not isinstance(posterior, np.ndarray):
+        raise TypeError("posterior must be a numpy array")
     if not (isinstance(certainties, np.ndarray) or certainties is None):
         raise TypeError("certainties must be a numpy array or None")
 
     if certainties is None:
-        certainties = posteriors.copy()
+        certainties = np.delete(posterior, 0, axis=1)
+        # more complicated for qudits???
 
     n_detectors, n_errors = h_eff.shape
+    GF = galois.GF(field)
 
-    ##################################################################################
+    ####################################################################################
     # For qubits, do normal OSD (need to be careful with error powers for qudits *help*)
-    ##################################################################################
+    ####################################################################################
 
     # Step 1: order the errors by likelihood
-    # posteriors: row index = error mechanism, column index = power, i.e. entry for mechanism (1, ..., field-1)
-    col_rank_perm = np.argsort(-np.delete(posteriors, 0, axis=1), axis=None)
-    # col_rank_perm = np.argsort(certainties)
-    col_rank_inv_perm = np.empty_like(col_rank_perm)
-    col_rank_inv_perm[col_rank_perm] = np.arange(len(col_rank_perm))
+    permutation, inv_permutation = _find_permutation(certainties)
+    h_eff = h_eff[:, permutation]
+    certainties = certainties[
+        permutation
+    ]  # potentially want sth more complicated for qudits???
 
-    # Step 2: create Galois field elements
-    GF = galois.GF(field)
-    H_gf = GF(h_eff.copy())
-    syndrome_gf = GF(syndrome.copy())
+    # Step 2: decompose h_eff into rank(h_eff) linearly independent columns (P) and the remainder (B) using rref
+    P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref = _decompose(
+        field, h_eff, syndrome
+    )
 
-    # Order the columns of h_gf and prior according to the ranking
-    H_ordered_gf = H_gf[:, col_rank_perm]
-    priors_perm = posteriors[col_rank_perm]
-    # priors_perm = prior[col_rank_perm] ??? or the deleted posteriors???
+    # Invert permutation
+    certainties = certainties[inv_permutation]
+    h_eff = h_eff[:, inv_permutation]
 
-    # Find the reduced row echelon form (RREF) and identify pivot columns
-    H_rref_gf, syndrome_rref_gf, pivot_cols = rref(H_ordered_gf, syndrome_gf)
-    m_ind = H_rref_gf.shape[0]
-    non_pivot_cols = [i for i in range(n_errors) if i not in pivot_cols]
-
-    # Select the first rank(h_gf) linearly independent columns as basis set in P, others in B
-    P = H_rref_gf[:, pivot_cols]
-    assert P.shape == (m_ind, m_ind)
-    B = H_rref_gf[:, non_pivot_cols]
-
-    def sln_from(g):
-        assert g.shape == (n_errors - m_ind,)
-        remainder = syndrome_rref_gf - B @ g
-        fix = np.linalg.solve(P, remainder)
-        assert (P @ fix + B @ g == syndrome_rref_gf).all()
-
-        score = 0
-        sln = GF.Zeros(n_errors)
-        # Find prob of basis set
-        for i in range(m_ind):
-            p = priors_perm[pivot_cols[i], fix[i]]
-            sln[pivot_cols[i]] = fix[i]
-            if p > 0:
-                score += np.log(p)
-            else:
-                score -= 1000
-
-        for i in range(n_errors - m_ind):
-            p = priors_perm[non_pivot_cols[i], g[i]]
-            sln[non_pivot_cols[i]] = g[i]
-            if p > 0:
-                score += np.log(p)
-            else:
-                score -= 1000
-
-        # Check sln makes correct syndrome
-        assert (H_rref_gf @ sln == syndrome_rref_gf).all()
-        assert (H_gf @ sln[col_rank_inv_perm] == syndrome_gf).all()
-
-        assert ((h_eff @ sln[col_rank_inv_perm].__array__()) % field == syndrome).all()
-
-        return np.array(sln[col_rank_inv_perm]), score
-
-    # OSD_0 solution
-    best_solution, best_score = sln_from(GF.Zeros(n_errors - m_ind))
-    assert ((h_eff @ best_solution) % field == syndrome).all()
+    # Step 3: solve (wrt order) for the error mechanism with highest likelihood
+    if order == 0:
+        error, score = _rank_errors(
+            GF.Zeros(n_errors - rank),
+            field,
+            n_errors,
+            rank,
+            h_rref,
+            syndrome_rref,
+            B,
+            P,
+            certainties,
+            pivot_cols,
+            non_pivot_cols,
+        )
+        error = error[inv_permutation]
+        assert ((h_eff @ error) % field == syndrome).all()
+    else:
+        raise NotImplementedError("OSD with order > 0 is not implemented yet.")
 
     if debug:
-        return best_solution, True, False, posteriors
+        return error, True, False, posterior
     else:
-        return best_solution, True
+        return error, True
 
 
 def d_osd(
@@ -366,10 +427,10 @@ def d_osd(
     if not isinstance(prior, np.ndarray):
         raise TypeError("prior must be a numpy array")
 
-    error_distances = -dijkstra(
+    certainties = -dijkstra(
         h_eff, syndrome
-    )  # negative for ordering low distance = high likelihood
-    return osd(field, h_eff, syndrome, prior, error_distances, debug)
+    )  # negative for ordering: low distance = high likelihood
+    return osd(field, h_eff, syndrome, prior, certainties, debug)
 
 
 def bp_osd(
@@ -423,4 +484,7 @@ def bp_osd(
         else:
             return error, success
 
-    return osd(field, h_eff, syndrome, posterior, None, debug)
+    # Qubit case: use only likelihood of X/Z error to rank h_eff columns, qudit case: tbd
+    certainties = np.delete(posterior, 0, axis=1)
+
+    return osd(field, h_eff, syndrome, posterior, certainties, debug)
