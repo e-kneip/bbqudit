@@ -201,7 +201,10 @@ def belief_propagation(
             else:
                 return error, True
 
-    return posteriors, False
+    if debug:
+        return error, False, False, posteriors
+    else:
+        return error, False
 
 
 def _find_permutation(certainties):
