@@ -55,6 +55,17 @@ def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
     return error_distances
 
 
+def _permute_field(field: int) -> np.ndarray:
+    """Construct permutations to shift errors according to stabiliser powers."""
+    GF = galois.GF(field)
+    permutation = np.zeros((field, field), dtype=int)
+    for i in range(1, field):
+        inv = GF(1) / GF(i)
+        for j in range(field):
+            permutation[i, j] = int(GF(j) * inv)
+    return permutation
+
+
 def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood):
     """Pass messages from checks to errors."""
     for i, errs in det_neighbourhood.items():
