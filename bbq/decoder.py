@@ -59,9 +59,9 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood):
     """Pass messages from checks to errors."""
     for i, errs in det_neighbourhood.items():
         # Fourier transform the relevant error messages
-        convolution = np.fft.fft(Q[errs, i, :], axis=1)
+        convolution = np.fft.fft(Q[errs[:, 0], i, :], axis=1)
 
-        for j, error in enumerate(errs):
+        for j, error in enumerate(errs[:, 0]):
             # Remove the j-th error message from the convolution
             sub_convolution = np.delete(convolution, j, axis=0)
 
@@ -80,9 +80,9 @@ def _error_to_check_message(prior, P, Q, err_neighbourhood):
     """Pass messages from errors to checks."""
     for i, dets in err_neighbourhood.items():
         # Isolate the relevant check messages
-        posterior = P[dets, i, :]
+        posterior = P[dets[:, 0], i, :]
 
-        for j, detector in enumerate(dets):
+        for j, detector in enumerate(dets[:, 0]):
             # Remove the j-th check message from the posterior
             sub_posterior = np.delete(posterior, j, axis=0)
 
@@ -103,7 +103,7 @@ def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     error = np.zeros(n_errors, dtype=int)
 
     for i, dets in err_neighbourhood.items():
-        posterior = np.prod(P[dets, i, :], axis=0) * prior[i, :]
+        posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
         posterior /= np.sum(posterior) - posterior
         ####### do I have blowing up problems here??? yes, yes you do...
         posteriors[i, :] = posterior
@@ -179,7 +179,7 @@ def belief_propagation(
 
         # Send the same message of priors for each error to its neighbouring detectors
         if i in err_neighbourhood:
-            Q[i, err_neighbourhood[i], :] = prior[i]
+            Q[i, err_neighbourhood[i][:, 0], :] = prior[i]
 
     # P[i, k] is the message passed from check i to error k
     P = np.zeros((n_detectors, n_errors, field))
