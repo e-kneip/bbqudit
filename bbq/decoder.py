@@ -66,11 +66,24 @@ def _permute_field(field: int) -> np.ndarray:
     return permutation
 
 
-def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood):
+def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
+    """Construct permutations to shift errors according to syndrome and invert stabiliser powers."""
+    GF = galois.GF(field)
+    permutation = np.zeros((field, field), dtype=int)
+    for i in range(field):
+        for j in range(field):
+            permutation[i, j] = int(GF(syndrome) - GF(j) * GF(i))
+
+
+def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutation):
     """Pass messages from checks to errors."""
     for i, errs in det_neighbourhood.items():
+        # Permute elements in Q according to stabiliser powers
+        for p in range(len(errs)):
+            Q_perm = Q.copy()[errs[p, 0], i, :][permutation[errs[p, 1], :]]
+
         # Fourier transform the relevant error messages
-        convolution = np.fft.fft(Q[errs[:, 0], i, :], axis=1)
+        convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
 
         for j, error in enumerate(errs[:, 0]):
             # Remove the j-th error message from the convolution
@@ -180,6 +193,8 @@ def belief_propagation(
     err_neighbourhood = err_to_det(h_eff)
     det_neighbourhood = det_to_err(h_eff)
 
+    permutation = _permute_field(field)
+
     # Step 0: initialisation
     # Q[k, i] is the message passed from error k to check i
     Q = np.zeros((n_errors, n_detectors, field))
@@ -197,7 +212,7 @@ def belief_propagation(
 
     for _ in range(max_iter):
         # Step 1: pass check to error messages
-        _check_to_error_message(field, syndrome, P, Q, det_neighbourhood)
+        _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutation)
 
         # Step 2: pass error to check messages
         _error_to_check_message(prior, P, Q, err_neighbourhood)
