@@ -73,14 +73,20 @@ def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
     for i in range(field):
         for j in range(field):
             permutation[i, j] = int(GF(syndrome) - GF(j) * GF(i))
+    return permutation
 
 
 def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutation):
     """Pass messages from checks to errors."""
     for i, errs in det_neighbourhood.items():
+        syn_inv_permutation = _syn_inv_permute_field(syndrome[i], field)
+
         # Permute elements in Q according to stabiliser powers
+        Q_perm = Q.copy()
         for p in range(len(errs)):
-            Q_perm = Q.copy()[errs[p, 0], i, :][permutation[errs[p, 1], :]]
+            Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][
+                permutation[errs[p, 1], :]
+            ]
 
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
@@ -96,8 +102,7 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
             sub_convolution = np.fft.ifft(sub_convolution, axis=0)
 
             # Pass message
-            for k in range(field):
-                P[i, error, k] = sub_convolution[(syndrome[i] - k) % field]
+            P[i, error, :] = sub_convolution[syn_inv_permutation[errs[j, 1], :]]
 
 
 def _error_to_check_message(prior, P, Q, err_neighbourhood):
