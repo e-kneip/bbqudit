@@ -3,7 +3,7 @@
 import numpy as np
 import galois
 
-from bbq.utils import err_to_det, det_to_err, rref
+from bbq.utils import err_to_det, det_to_err, rref, find_pivots
 
 
 def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
@@ -174,8 +174,8 @@ def belief_propagation(
 
     Returns
     -------
-    error/posteriors : nd.array
-        The predicted error if decoding successful, otherwise the posteriors.
+    error : nd.array
+        The predicted error.
     success : bool
         Whether the decoding converged to a valid solution.
     """
@@ -257,7 +257,7 @@ def _decompose(field, h_eff, syndrome):
     syndrome_gf = GF(syndrome.copy())
 
     # Find the reduced row echelon form (RREF) and identify pivot columns
-    h_rref, syndrome_rref, pivot_cols, pivots = rref(
+    h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = rref(
         h_gf, syndrome_gf
     )  # may need pivots for qudits???
     rank = h_rref.shape[0]
@@ -323,7 +323,7 @@ def _rank_errors(
     return np.array(error), score
 
 
-def osd(
+def slow_osd(
     field: int,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
@@ -333,7 +333,7 @@ def osd(
     debug: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """
-    Decode the syndrome using an ordered statistics decoder.
+    Decode the syndrome using an ordered statistics decoder (with Gaussian elimination).
 
     Parameters
     ----------
@@ -417,6 +417,97 @@ def osd(
     # Invert permutation
     h_eff = h_eff[:, inv_permutation]
     posterior = posterior[inv_permutation, :]
+
+    assert ((h_eff @ error) % field == syndrome).all()
+
+    if debug:
+        return error, True, False, posterior
+    else:
+        return error, True
+
+
+def osd(
+    field: int,
+    h_eff: np.ndarray,
+    syndrome: np.ndarray,
+    posterior: np.ndarray,
+    certainties: np.ndarray = None,
+    order: int = 0,
+    debug: bool = False,
+) -> tuple[np.ndarray, bool]:
+    """
+    Decode the syndrome using an ordered statistics decoder (with PLU decomposition).
+
+    Parameters
+    ----------
+    field : int
+        The qudit dimension.
+    h_eff : nd.array
+        The effective parity check matrix.
+    syndrome : nd.array
+        The syndrome of the error.
+    posterior : nd.array
+        The posterior probabilities of each error mechanism.
+    certainties : nd.array
+        The likelihoods of each error mechanism for ordering, default None constructs certainties from posterior.
+    order : int
+        The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
+    debug : bool
+        Whether to return debug information (error, success, pre_proccessing_success, posterior), default is False.
+
+    Returns
+    -------
+    error : nd.array
+        The predicted error mechanism.
+    bool
+        Whether the decoding was successful.
+    """
+    if not isinstance(field, int) or field < 2:
+        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(h_eff, np.ndarray):
+        raise TypeError("h_eff must be a numpy array")
+    if not isinstance(syndrome, np.ndarray):
+        raise TypeError("syndrome must be a numpy array")
+    if not isinstance(order, int) or order < 0:
+        raise ValueError("order must be a non-negative integer")
+    if not isinstance(posterior, np.ndarray):
+        raise TypeError("posterior must be a numpy array")
+    if not (isinstance(certainties, np.ndarray) or certainties is None):
+        raise TypeError("certainties must be a numpy array or None")
+
+    if certainties is None:
+        # WARNING: Lose information here in the qudit case???
+        certainties = np.sum(np.delete(posterior, 0, axis=1), axis=1)
+
+    n_detectors, n_errors = h_eff.shape
+    GF = galois.GF(field)
+
+    # Step 1: order the errors by likelihood
+    permutation, inv_permutation = _find_permutation(certainties)
+    h_eff = h_eff[:, permutation]
+
+    # Step 2: decompose h_eff into rank(h_eff) linearly independent columns and rows (P) using plu decomposition
+    # P, pivot_rows, pivot_cols = find_pivots(GF(h_eff))
+    h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = rref(
+        GF(h_eff), GF(syndrome)
+    )
+    P = h_eff[:, pivot_cols][pivot_rows, :]
+
+    # Step 3: solve (wrt order) for the error mechanism with highest likelihood
+    if order == 0:
+        error = np.zeros(n_errors)
+        syndrome_gf = GF(syndrome[pivot_rows])
+        P_gf = GF(P)
+
+        # Solve linear system
+        short_error = np.linalg.solve(P_gf, syndrome_gf).__array__()
+        error[pivot_cols] = short_error
+        error = error[inv_permutation]
+    else:
+        raise NotImplementedError("OSD with order > 0 is not implemented yet.")
+
+    # Invert permutation
+    h_eff = h_eff[:, inv_permutation]
 
     assert ((h_eff @ error) % field == syndrome).all()
 
@@ -530,7 +621,8 @@ def bp_osd(
         else:
             return error, success
 
-    # Qubit case: use only likelihood of X/Z error to rank h_eff columns, qudit case: tbd
-    certainties = np.delete(posterior, 0, axis=1)
+    # Use sum of all likelihoods of X^k/Z^k errors on a  given qudit to rank h_eff columns
+    # WARNING: Lose information here in the qudit case???
+    certainties = np.sum(np.delete(posterior, 0, axis=1), axis=1)
 
     return osd(field, h_eff, syndrome, posterior, certainties, order, debug)

@@ -141,17 +141,37 @@ def rref(
         if len(pivot_rows) == m:
             break
 
-    return A_rref[sorted(pivot_rows)], v_rref[sorted(pivot_rows)], pivot_cols, pivots
+    return (
+        A_rref[sorted(pivot_rows)],
+        v_rref[sorted(pivot_rows)],
+        pivot_cols,
+        pivot_rows,
+        pivots,
+    )
 
 
-def _find_pivot_cols(A: galois.FieldArray) -> list[int]:
-    """Find the first A.shape[0] linearly independent columns in A."""
+def find_pivots(A: galois.FieldArray) -> list[int]:
+    """Find the first rank(A) linearly independent columns in A."""
     pivot_cols = []
+    pivot_rows = [0]
 
+    # NB: could do cols in the same way as rows using rank but idk which is faster???
     u = A.plu_decompose()[2]
     non_zero_rows, non_zero_cols = np.nonzero(u)
 
-    for i in range(A.shape[0]):
+    for i in range(np.linalg.matrix_rank(A)):
         hit = np.where(non_zero_rows == i)[0][0]
         pivot_cols.append(int(non_zero_cols[hit]))
-    return pivot_cols
+
+    B = A[:, pivot_cols]
+    C = B[0, :]
+    rank = 1
+    for row in range(1, B.shape[0]):
+        C = np.vstack((C, B[row, :]))
+        if np.linalg.matrix_rank(C) == rank:
+            C = np.delete(C, -1, axis=0)
+        else:
+            rank += 1
+            pivot_rows.append(row)
+
+    return C, pivot_cols, pivot_rows
