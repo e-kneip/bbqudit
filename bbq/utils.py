@@ -142,3 +142,16 @@ def rref(
             break
 
     return A_rref[sorted(pivot_rows)], v_rref[sorted(pivot_rows)], pivot_cols, pivots
+
+
+def _find_pivot_cols(A: galois.FieldArray) -> list[int]:
+    """Find the first A.shape[0] linearly independent columns in A."""
+    pivot_cols = []
+
+    u = A.plu_decompose()[2]
+    non_zero_rows, non_zero_cols = np.nonzero(u)
+
+    for i in range(A.shape[0]):
+        hit = np.where(non_zero_rows == i)[0][0]
+        pivot_cols.append(int(non_zero_cols[hit]))
+    return pivot_cols
