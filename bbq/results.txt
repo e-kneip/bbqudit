@@ -1,0 +1,58 @@
+TODO LIST:
+ -> Simulations
+    - Qubit toric code
+    - Zoomed in qubit toric
+    - Qutrit toric code
+    - Zoomed in qutrit toric
+    - Ququint toric code
+    - Zoomed in ququint toric
+ -> Find distances of bb codes
+ -> Finish presentation
+ -> Merge user friendly version to main
+ -> simulation.py?
+
+
+QUBIT TORIC CODE
+----------------
+
+results = {3: [938, 627, 227, 135, 107, 76, 42, 40, 36, 16],
+           5: [8591, 2295, 1436, 428, 260, 93, 42, 29, 18, 13],
+           7: [28624, 10266, 3814, 909, 317, 177, 67, 33, 14, 16]}
+
+num_failures = {3: 10,
+                5: [8, 8, 10, 10, 10, 10, 10, 10, 10, 10],
+                7: [8, 8, 8, 10, 10, 10, 10, 10, 10, 10]}
+
+Zoom!
+
+results = {3: [379, 365, 373, 336, 357, 306, 297, 277, 232, 217],
+           5: [476, 389, 374, 362, 260, 240, 242, 208, 211, 210],
+           7: [?, ?, ?, 155, 117, 118, 115, 83, 101, 89]}
+
+plot_num_failures = {3: 100,
+                5: 100,
+                7: 50}
+
+
+QUTRIT TORIC CODE
+----------------
+
+results = {3: [1069, 995, 582, 497, 130, 77, 82, 50, 28, 17],
+           5: [8598, 3386, 5109, 916, 522, 286, 151, 35, 22, 19],
+           7: [np.inf, 4982, 5702, 973, 2138, 494, 142, 49, 20, 17]}
+
+num_failures = {3: 10,
+                5: [3, 3, 10, 10, 10, 10, 10, 10, 10, 10],
+                7: [1, 1, 3, 3, 10, 10, 10, 10, 10, 10]}
+
+
+QUQUINT TORIC CODE
+----------------
+
+results = {3: [487, 167, 136, 247, 77, 65, 14, 23, 5, 10],
+           5: [???],
+           7: [???]}
+
+num_failures = {3: 3,
+                5: ?,
+                7: ?}
