@@ -3,13 +3,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "qudit-codes"
-version = "0.0.0"
-description="""Generalisation of quantum error correction codes to qudits."""
+name = "bbqudit"
+version = "0.0.1"
+description="""Generalisation of bivariate bicycle codes to qudits."""
 license = "MIT"
 authors = [
     { name = "Eleanor F. Kneip", email = "eleanor.kneip.24@ucl.ac.uk" },
 ]
+readme = "README.md"
+requires-python = ">=3.12"
 dependencies = [
     "galois",
     "matplotlib",
@@ -19,6 +21,7 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/e-kneip/qudit-bivariate-bicycle"
 
 [project.scripts]
 
