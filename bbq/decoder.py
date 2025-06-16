@@ -68,11 +68,10 @@ def _permute_field(field: int) -> np.ndarray:
 
 def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
     """Construct permutations to shift errors according to syndrome and invert stabiliser powers."""
-    GF = galois.GF(field)
-    permutation = np.zeros((field, field), dtype=int)
+    permutation = np.zeros(2 * (field,), dtype=int)
     for i in range(field):
         for j in range(field):
-            permutation[i, j] = int(GF(syndrome) - GF(j) * GF(i))
+            permutation[i, j] = (syndrome - j * i) % field
     return permutation
 
 
