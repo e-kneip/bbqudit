@@ -13,9 +13,10 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "egcd>=2.0.2",
     "galois",
     "matplotlib",
-    "numpy", 
+    "numpy",
     "scipy",
     "sympy",
 ]
@@ -27,3 +28,8 @@ Homepage = "https://github.com/e-kneip/qudit-bivariate-bicycle"
 
 [tool.hatch.build.targets.wheel]
 packages = ["bbq"]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+]
