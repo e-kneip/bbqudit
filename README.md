@@ -1,10 +1,9 @@
 # BBQudit
 
 BBQudit is a Python package that constructs and simulates qudit bivariate bicycle codes for any given bivariate polynomials over $GF(p)$. In particular, it provides the following features:
-- **Construction** - given two bivariate polynomials over $GF(p)$, initialise a qudit bivariate bicycle code, supplying parity check matrices, $H_X, H_Z$, logicals operators, and dictionaries with qudit connectivity.
+- **Construction** - given two bivariate polynomials over $GF(p)$, initialise a qudit bivariate bicycle code, supplying parity check matrices, $H_X, H_Z$, logicals operators, and qudit connectivity.
 - **Visualisation** - draw the Tanner graph of a qudit bivariate bicycle code.
-- **Simulation** - simulate a qudit bivariate bicycle code, under either code capacity (depolarising) or circuit-level noise models, and using a simple qudit decoder (Dijkstra + OSD).
-
+- **Simulation** - simulate a qudit bivariate bicycle code, under either code capacity (depolarising) or circuit-level noise models, using generalised qudit BP+OSD.
 # Demonstrations
 
 Here are some simple examples.
@@ -57,9 +56,14 @@ Here are some examples for the toric code with varying qudit dimension, $p$.
 
 ## Simulation
 
-Simulations can be carried out under both code capacity (depolarising) and circuit-level noise. Implementation is still under develpoment, see [here](bbq/simulation.py) for more details, but we illustarte some initial results for the toric code under code capacity below.
+Simulations are currently only implemented for code capacity (or depolarising) noise, within the experiments branch, but we illustrate some initial results for the qudit toric code under code capacity below.
 
-![image](https://github.com/user-attachments/assets/08d71b46-3137-4c91-8283-bf689e10f986)
+![image](https://github.com/user-attachments/assets/a61de6f1-9386-4b66-a9c5-f15d378e4ce7)
+
+![image](https://github.com/user-attachments/assets/9f16aca7-7963-4527-afa6-71ce1e9890ab)
+
+![image](https://github.com/user-attachments/assets/50b68a5e-c1bf-4056-8e56-d6223bca7a8a)
+
 
 <br/>
 
