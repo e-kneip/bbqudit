@@ -68,16 +68,16 @@ def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
 
 def _permute_field(field: int) -> np.ndarray:
     """Construct permutations to shift errors according to stabiliser powers."""
-    GF = galois.GF(field)
-    permutation = np.zeros((field, field), dtype=int)
-    for i in range(
-        1, field
-    ):  # TODO: a) np.arange(field)[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis] <- put inverses here
-        # b) np.einsum("j,i->ij", GF(np.arange(field)), 1 / GF(np.arange(1, field)))
-        inv = GF(1) / GF(i)  # c) cache inverses keep loop
-        for j in range(field):
-            permutation[i, j] = int(GF(j) * inv)
-    return permutation
+    GF = galois.GF(field)  # TODO: replace galois with cached inverses
+    block = (
+        GF(np.arange(1, field))[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
+    )
+    return np.hstack(
+        (
+            np.zeros((field, 1), dtype=int),
+            np.vstack((np.zeros((1, field - 1), dtype=int), block)),
+        )
+    )
 
 
 # TODO: Don't worry about this yet
@@ -90,8 +90,8 @@ def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
     return permutation
 
 
-# D matrix  Dx = derivative
-# D @ x  -> loop i, j: (syndrome - j * i) % field * x[j]
+# TODO tip: D matrix  Dx = derivative
+#           D @ x  -> loop i, j: (syndrome - j * i) % field * x[j]
 
 
 @njit  # TODO: remove njit
@@ -145,7 +145,8 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
             #       Store into P[i, :, :] == P[i, ...]
 
 
-# np.einsum(..., optimize=True)
+# TODO tip: np.einsum("j,i->ij", GF(np.arange(field)), 1 / GF(np.arange(1, field))) == np.arange(field)[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
+# TODO tip: np.einsum(..., optimize=True)
 def _error_to_check_message(prior, P, Q, err_neighbourhood):
     """Pass messages from errors to checks."""
     for (
