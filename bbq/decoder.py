@@ -2,6 +2,8 @@
 
 import numpy as np
 import galois
+from functools import lru_cache
+from numba import njit
 
 from bbq.utils import err_to_det, det_to_err, rref, find_pivots
 
@@ -55,30 +57,54 @@ def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
     return error_distances
 
 
+# @lru_cache
+# def get_inverse(i: int, field: int) -> int:
+#     """Get the inverse of i in the Galois field of size field."""
+#     if i == 0:
+#         raise ValueError("Cannot compute inverse of zero.")
+#     GF = galois.GF(field)
+#     return int(GF(1) / GF(i))  # Inverse in Galois field
+
+
 def _permute_field(field: int) -> np.ndarray:
     """Construct permutations to shift errors according to stabiliser powers."""
     GF = galois.GF(field)
     permutation = np.zeros((field, field), dtype=int)
-    for i in range(1, field):
-        inv = GF(1) / GF(i)
+    for i in range(
+        1, field
+    ):  # TODO: a) np.arange(field)[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis] <- put inverses here
+        # b) np.einsum("j,i->ij", GF(np.arange(field)), 1 / GF(np.arange(1, field)))
+        inv = GF(1) / GF(i)  # c) cache inverses keep loop
         for j in range(field):
             permutation[i, j] = int(GF(j) * inv)
     return permutation
 
 
+# TODO: Don't worry about this yet
 def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
     """Construct permutations to shift errors according to syndrome and invert stabiliser powers."""
-    GF = galois.GF(field)
     permutation = np.zeros((field, field), dtype=int)
-    for i in range(field):
+    for i in range(field):  # TODO: Never make this matrix
         for j in range(field):
-            permutation[i, j] = int(GF(syndrome) - GF(j) * GF(i))
+            permutation[i, j] = (syndrome - j * i) % field
     return permutation
+
+
+# D matrix  Dx = derivative
+# D @ x  -> loop i, j: (syndrome - j * i) % field * x[j]
+
+
+@njit  # TODO: remove njit
+def rearange_Q(Q_perm, errs, i, permutation):
+    """Rearrange the error messages in Q according to the stabiliser powers."""
+    for p in range(len(errs)):  # TODO: replace p with : and match axes
+        Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][permutation[errs[p, 1], :]]
+    return Q_perm
 
 
 def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutation):
     """Pass messages from checks to errors."""
-    for i, errs in det_neighbourhood.items():
+    for i, errs in det_neighbourhood.items():  # TODO: Deal with this later
         syn_inv_permutation = _syn_inv_permute_field(syndrome[i], field)
 
         # Permute elements in Q according to stabiliser powers
@@ -87,34 +113,55 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
             Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][
                 permutation[errs[p, 1], :]
             ]
+        # Q_perm = rearange_Q(Q_perm, errs, i, permutation)  # TODO: See this
 
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
-
+        mask = np.ones(convolution.shape[0], dtype=bool)
         for j, error in enumerate(errs[:, 0]):
             # Remove the j-th error message from the convolution
-            sub_convolution = np.delete(convolution, j, axis=0)
+
+            # create a mask that selects all rows except the j-th
+            # This is equivalent to deleting the j-th row
+
+            mask[j] = False
+
+            # sub_convolution = np.delete(convolution, j, axis=0)
+            sub_convolution = convolution[mask, :]
 
             # Compute the product of the transformed error messages
             sub_convolution = np.prod(sub_convolution, axis=0)
 
             # Inverse Fourier transform the product to find the subset convolution
-            sub_convolution = np.fft.ifft(sub_convolution, axis=0)
+            sub_convolution = np.fft.ifft(sub_convolution, axis=0).real
 
             # Pass message
             P[i, error, :] = sub_convolution[syn_inv_permutation[errs[j, 1], :]]
+            # update the mask
+            mask[j] = True
+
+            # TODO: Find numpy function to compute masked products and lift out of loop
+            #       lift ifft out of loop
+            #       Store into P[i, :, :] == P[i, ...]
 
 
+# np.einsum(..., optimize=True)
 def _error_to_check_message(prior, P, Q, err_neighbourhood):
     """Pass messages from errors to checks."""
-    for i, dets in err_neighbourhood.items():
+    for (
+        i,
+        dets,
+    ) in (
+        err_neighbourhood.items()
+    ):  # TODO: Vectorize this too (later) (consider using einsum)
         # Isolate the relevant check messages
         posterior = P[dets[:, 0], i, :]
-
+        mask = np.ones(posterior.shape[0], dtype=bool)
         for j, detector in enumerate(dets[:, 0]):
             # Remove the j-th check message from the posterior
-            sub_posterior = np.delete(posterior, j, axis=0)
-
+            # sub_posterior = np.delete(posterior, j, axis=0)
+            mask[j] = False
+            sub_posterior = posterior[mask, :]
             # Compute the product of probabilities
             sub_posterior = np.prod(sub_posterior, axis=0) * prior[i, :]
 
@@ -125,6 +172,11 @@ def _error_to_check_message(prior, P, Q, err_neighbourhood):
             # Pass normalised message
             Q[i, detector, :] = sub_posterior / np.sum(sub_posterior)
 
+            # update the mask
+            mask[j] = True
+
+            # TODO: (This first!) Similar fix to _check_to_error_message
+
 
 def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     """Calculate the posterior probabilities and make hard decision on error."""
@@ -132,14 +184,17 @@ def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     error = np.zeros(n_errors, dtype=int)
 
     for i, dets in err_neighbourhood.items():
+        # TODO: Vectorize this:
         posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
         posterior /= np.sum(posterior) - posterior
         ####### do I have blowing up problems here??? yes, yes you do...
         posteriors[i, :] = posterior
         ############### does OSD want the likelihoods or the probabilities??? (I think likelihoods here)
+        # TODO: Vectorize this ^
 
+        # TODO: Do this as a separate operation (vectorized)
         max_lik = np.argmax(posterior)
-        if posterior[max_lik] >= 1:
+        if posterior[max_lik] >= 1:  # Okay to keep this as a loop
             error[i] = max_lik
 
         ##############################################
@@ -271,7 +326,7 @@ def _decompose(field, h_eff, syndrome):
     return P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref
 
 
-def _rank_errors(
+def _rank_errors(  # TODO: Too many args
     g,
     field,
     n_errors,
@@ -281,8 +336,8 @@ def _rank_errors(
     B,
     P,
     posterior,
-    pivot_cols,
-    non_pivot_cols,
+    pivot_cols,  # TODO: Replace with a binary index and compute inside _rank_errors
+    non_pivot_cols,  # TODO: Remove
 ):
     """Calculate the error mechanism, satisfying the syndrome, with highest likelihood"""
 
@@ -299,6 +354,10 @@ def _rank_errors(
     # Rank the errors by likelihood
     score = 0
     error = GF.Zeros(n_errors)
+
+    # TODO: error[pivot_cols] = fix
+    #       p = posterior[pivot_cols, fix]
+    # Then check if p > 0 ... (vectorized or keep the loop)
 
     for i in range(rank):
         p = posterior[pivot_cols[i], fix[i]]
@@ -477,7 +536,7 @@ def osd(
 
     if certainties is None:
         # WARNING: Lose information here in the qudit case???
-        certainties = np.sum(np.delete(posterior, 0, axis=1), axis=1)
+        certainties = np.sum(posterior[:, 1:], axis=1)
 
     n_detectors, n_errors = h_eff.shape
     GF = galois.GF(field)
