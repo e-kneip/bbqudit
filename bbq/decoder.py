@@ -91,10 +91,10 @@ def _syn_inv_permute_field(syndrome: int, field: int) -> np.ndarray:
 #           D @ x  -> loop i, j: (syndrome - j * i) % field * x[j]
 
 
-@njit  # TODO: remove njit
+@njit
 def rearange_Q(Q_perm, errs, i, permutation):
     """Rearrange the error messages in Q according to the stabiliser powers."""
-    for p in range(len(errs)):  # TODO: replace p with : and match axes
+    for p in range(len(errs)):
         Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][permutation[errs[p, 1], :]]
     return Q_perm
 
@@ -106,24 +106,20 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
 
         # Permute elements in Q according to stabiliser powers
         Q_perm = Q.copy()
-        for p in range(len(errs)):
-            Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][
-                permutation[errs[p, 1], :]
-            ]
-        # Q_perm = rearange_Q(Q_perm, errs, i, permutation)  # TODO: See this (fix rearange_Q then put into function as njit shouldn't help)
+        Q_perm[errs[:, 0], i, :] = np.take_along_axis(
+            Q_perm[errs[:, 0], i, :], permutation[errs[:, 1], :], axis=1
+        )
+        # Q_perm = rearange_Q(Q_perm, errs, i, permutation) (NOTE: older code, is about the same speed as the above line but maybe slower for larger simulations?)
 
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
+
+        # Set up mask to remove error messages
         mask = np.ones(convolution.shape[0], dtype=bool)
+
         for j, error in enumerate(errs[:, 0]):
             # Remove the j-th error message from the convolution
-
-            # create a mask that selects all rows except the j-th
-            # This is equivalent to deleting the j-th row
-
             mask[j] = False
-
-            # sub_convolution = np.delete(convolution, j, axis=0)
             sub_convolution = convolution[mask, :]
 
             # Compute the product of the transformed error messages
