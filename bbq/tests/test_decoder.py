@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from bbq.decoder import dijkstra, d_osd, bp_osd
+from bbq.field import Field
 
 
 @pytest.mark.parametrize(
@@ -22,7 +23,7 @@ def test_dijkstra(h, syndrome, distances):
     "field, h_eff, syndrome, prior, order, debug, error,",
     [
         [
-            2,
+            Field(2),
             np.array([[0, 0, 1, 1], [0, 1, 1, 1], [0, 1, 1, 0]]),
             np.array([0, 0, 1]),
             np.array([[0.9, 0.1], [0.9, 0.1], [0.8, 0.2], [0.8, 0.2]]),
@@ -42,7 +43,7 @@ def test_d_osd(field, h_eff, syndrome, prior, order, debug, error):
     "field, h_eff, syndrome, prior, max_iter, order, debug, error,",
     [
         [
-            2,
+            Field(2),
             np.array([[0, 0, 1, 1], [0, 1, 1, 1], [0, 1, 1, 0]]),
             np.array([0, 0, 1]),
             np.array([[0.9, 0.1], [0.9, 0.1], [0.8, 0.2], [0.8, 0.2]]),
@@ -50,6 +51,26 @@ def test_d_osd(field, h_eff, syndrome, prior, order, debug, error):
             0,
             False,
             np.array([0, 0, 1, 1]),
+        ],
+        [
+            Field(5),
+            np.array(
+                [[0, 0, 1, 1, 2], [0, 1, 1, 1, 2], [0, 1, 2, 2, 3], [0, 2, 2, 3, 4]]
+            ),
+            np.array([1, 1, 0, 3]),
+            np.array(
+                [
+                    [0.3, 0.4, 0.1, 0.2, 0.0],
+                    [0.7, 0.1, 0.2, 0.0, 0.0],
+                    [0.1, 0.2, 0.5, 0.2, 0.0],
+                    [0.1, 0.1, 0.1, 0.6, 0.1],
+                    [0.0, 0.0, 0.1, 0.2, 0.7],
+                ]
+            ),
+            1000,
+            0,
+            False,
+            np.array([0, 0, 1, 1, 2]),
         ],
     ],
 )
