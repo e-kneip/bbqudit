@@ -6,6 +6,7 @@ from functools import lru_cache
 from numba import njit
 
 from bbq.utils import err_to_det, det_to_err, rref, find_pivots
+from bbq.field import Field
 
 
 def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
@@ -66,9 +67,9 @@ def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
 #     return int(GF(1) / GF(i))  # Inverse in Galois field
 
 
-def _permute_field(field: int) -> np.ndarray:
+def _permute_field_slow(field: int) -> np.ndarray:
     """Construct permutations to shift errors according to stabiliser powers."""
-    GF = galois.GF(field)  # TODO: replace galois with cached inverses
+    GF = galois.GF(field)
     block = (
         GF(np.arange(1, field))[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
     )
@@ -78,6 +79,15 @@ def _permute_field(field: int) -> np.ndarray:
             np.vstack((np.zeros((1, field - 1), dtype=int), block)),
         )
     )
+
+
+def _permute_field(field: Field) -> np.ndarray:
+    """Construct permutations to shift errors according to stabiliser powers."""
+    permutation = np.zeros((field.p, field.p), dtype=int)
+    for i in range(1, field.p):
+        for j in range(1, field.p):
+            permutation[i, j] = field.div(j, i)
+    return permutation
 
 
 # TODO: Don't worry about this yet
@@ -113,7 +123,7 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
             Q_perm[errs[p, 0], i, :] = Q_perm[errs[p, 0], i, :][
                 permutation[errs[p, 1], :]
             ]
-        # Q_perm = rearange_Q(Q_perm, errs, i, permutation)  # TODO: See this
+        # Q_perm = rearange_Q(Q_perm, errs, i, permutation)  # TODO: See this (fix rearange_Q then put into function as njit shouldn't help)
 
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
@@ -146,7 +156,7 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
 
 
 # TODO tip: np.einsum("j,i->ij", GF(np.arange(field)), 1 / GF(np.arange(1, field))) == np.arange(field)[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
-# TODO tip: np.einsum(..., optimize=True)
+#           np.einsum(..., optimize=True)
 def _error_to_check_message(prior, P, Q, err_neighbourhood):
     """Pass messages from errors to checks."""
     for (
@@ -206,7 +216,7 @@ def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
 
 
 def belief_propagation(
-    field: int,
+    field: Field,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     prior: np.ndarray,
@@ -217,6 +227,8 @@ def belief_propagation(
 
     Parameters
     ----------
+    field : Field
+        The qudit dimension.
     h_eff : nd.array
         The effective parity check matrix, where columns = error mechanism and rows = syndrome (flagged stabilisers).
     syndrome : nd.array
@@ -235,8 +247,8 @@ def belief_propagation(
     success : bool
         Whether the decoding converged to a valid solution.
     """
-    if not isinstance(field, int) or field < 2:
-        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(field, Field):
+        raise ValueError("field must be a Field instance")
     if not isinstance(h_eff, np.ndarray):
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
@@ -258,7 +270,7 @@ def belief_propagation(
 
     # Step 0: initialisation
     # Q[k, i] is the message passed from error k to check i
-    Q = np.zeros((n_errors, n_detectors, field))
+    Q = np.zeros((n_errors, n_detectors, field.p))
     for i in range(n_errors):
         #######################################################################
         # WARNING: If an error flags no detectors, sets messages to 0, => if syndrome is all 0, then will always say 0 errors (not a possible non-0 solution) *I think*
@@ -269,11 +281,11 @@ def belief_propagation(
             Q[i, err_neighbourhood[i][:, 0], :] = prior[i]
 
     # P[i, k] is the message passed from check i to error k
-    P = np.zeros((n_detectors, n_errors, field))
+    P = np.zeros((n_detectors, n_errors, field.p))
 
     for _ in range(max_iter):
         # Step 1: pass check to error messages
-        _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutation)
+        _check_to_error_message(field.p, syndrome, P, Q, det_neighbourhood, permutation)
 
         # Step 2: pass error to check messages
         _error_to_check_message(prior, P, Q, err_neighbourhood)
@@ -282,7 +294,7 @@ def belief_propagation(
         error, posteriors = _calculate_posterior(prior, n_errors, err_neighbourhood, P)
 
         # Step 4: check convergence
-        if np.all(h_eff @ error % field == syndrome):
+        if np.all(h_eff @ error % field.p == syndrome):
             if debug:
                 return error, True, True, posteriors
             else:
@@ -487,7 +499,7 @@ def slow_osd(
 
 
 def osd(
-    field: int,
+    field: Field,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     posterior: np.ndarray,
@@ -500,7 +512,7 @@ def osd(
 
     Parameters
     ----------
-    field : int
+    field : Field
         The qudit dimension.
     h_eff : nd.array
         The effective parity check matrix.
@@ -522,8 +534,8 @@ def osd(
     bool
         Whether the decoding was successful.
     """
-    if not isinstance(field, int) or field < 2:
-        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(field, Field):
+        raise ValueError("field must be a Field instance")
     if not isinstance(h_eff, np.ndarray):
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
@@ -540,7 +552,7 @@ def osd(
         certainties = np.sum(posterior[:, 1:], axis=1)
 
     n_detectors, n_errors = h_eff.shape
-    GF = galois.GF(field)
+    GF = galois.GF(field.p)
 
     # Step 1: order the errors by likelihood
     permutation, inv_permutation = _find_permutation(certainties)
@@ -569,7 +581,7 @@ def osd(
     # Invert permutation
     h_eff = h_eff[:, inv_permutation]
 
-    assert ((h_eff @ error) % field == syndrome).all()
+    assert ((h_eff @ error) % field.p == syndrome).all()
 
     if debug:
         return error, True, False, posterior
@@ -578,7 +590,7 @@ def osd(
 
 
 def d_osd(
-    field: int,
+    field: Field,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     prior: np.ndarray,
@@ -590,7 +602,7 @@ def d_osd(
 
     Parameters
     ----------
-    field : int
+    field : Field
         The qudit dimension.
     h_eff : nd.array
         The effective parity check matrix.
@@ -610,8 +622,8 @@ def d_osd(
     bool
         Whether the decoding was successful.
     """
-    if not isinstance(field, int) or field < 2:
-        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(field, Field):
+        raise ValueError("field must be a Field instance")
     if not isinstance(h_eff, np.ndarray):
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
@@ -626,7 +638,7 @@ def d_osd(
 
 
 def bp_osd(
-    field: int,
+    field: Field,
     h_eff: np.ndarray,
     syndrome: np.ndarray,
     prior: np.ndarray,
@@ -639,7 +651,7 @@ def bp_osd(
 
     Parameters
     ----------
-    field : int
+    field : Field
         The qudit dimension.
     h_eff : nd.array
         The effective parity check matrix.
@@ -661,8 +673,8 @@ def bp_osd(
     bool
         Whether the decoding was successful.
     """
-    if not isinstance(field, int) or field < 2:
-        raise ValueError("field must be an integer greater than 1")
+    if not isinstance(field, Field):
+        raise ValueError("field must be a Field instance")
     if not isinstance(h_eff, np.ndarray):
         raise TypeError("h_eff must be a numpy array")
     if not isinstance(syndrome, np.ndarray):
@@ -686,3 +698,6 @@ def bp_osd(
     certainties = np.sum(np.delete(posterior, 0, axis=1), axis=1)
 
     return osd(field, h_eff, syndrome, posterior, certainties, order, debug)
+
+
+# TODO: Generate prior in advance in simulation, to be used in all shots
