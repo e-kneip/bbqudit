@@ -2,7 +2,6 @@
 
 import numpy as np
 import galois
-from functools import lru_cache
 from numba import njit
 
 from bbq.utils import err_to_det, det_to_err, rref, find_pivots
@@ -58,36 +57,24 @@ def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
     return error_distances
 
 
-# @lru_cache
-# def get_inverse(i: int, field: int) -> int:
-#     """Get the inverse of i in the Galois field of size field."""
-#     if i == 0:
-#         raise ValueError("Cannot compute inverse of zero.")
-#     GF = galois.GF(field)
-#     return int(GF(1) / GF(i))  # Inverse in Galois field
-
-
-def _permute_field_slow(field: int) -> np.ndarray:
-    """Construct permutations to shift errors according to stabiliser powers."""
-    GF = galois.GF(field)
-    block = (
-        GF(np.arange(1, field))[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
-    )
-    return np.hstack(
-        (
-            np.zeros((field, 1), dtype=int),
-            np.vstack((np.zeros((1, field - 1), dtype=int), block)),
-        )
-    )
-
-
 def _permute_field(field: Field) -> np.ndarray:
     """Construct permutations to shift errors according to stabiliser powers."""
-    permutation = np.zeros((field.p, field.p), dtype=int)
-    for i in range(1, field.p):
-        for j in range(1, field.p):
-            permutation[i, j] = field.div(j, i)
-    return permutation
+    if field.p < 7:
+        # For small fields, double for loop is faster than numpy
+        permutation = np.zeros((field.p, field.p), dtype=int)
+        for i in range(1, field.p):
+            for j in range(1, field.p):
+                permutation[i, j] = field.div(j, i)
+        return permutation
+    else:
+        inv = field._inverse
+        block = (np.arange(1, field.p)[np.newaxis, :] * inv[1:, np.newaxis]) % field.p
+        return np.hstack(
+            (
+                np.zeros((field.p, 1), dtype=int),
+                np.vstack((np.zeros((1, field.p - 1), dtype=int), block)),
+            )
+        )
 
 
 # TODO: Don't worry about this yet
