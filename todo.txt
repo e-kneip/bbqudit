@@ -1,3 +1,15 @@
+SPEEEEEEEED
+-----------
+ -> put masks outside loops for _check_to_error/_error_to_check
+ -> njit?? lru_cache??
+ -> parallelise shots
+ -> move ifft/prod outside loop in _check_to_error
+ -> ditch galois (/rewrite it)
+ -> compare speed of doing Fourier explicitly
+ -> follow the profile
+
+
+
 Lil bugs:
  -> should be using the Hx, Hy to make tanner instead of polys?
  -> am I modelling qudit errors right? i.e. with some prob an error occurs and which of Z^k (or X^k) is uniform also for CNOT only do (XY)^k not X^kY^k'
@@ -15,17 +27,12 @@ DISTANCE ESTIMATE
 
 DO THIS NEXT
 ------------
- -> check all the hx_eff used in x_check, is it right way around?
- -> why do we do 2 noise free cycles at end?
  -> initialisation of bbcode uses qubit instead of qudit!!!
+ -> update PyPI
+ -> reorganise files, make clear what it only for bbq and what is general qudits
 
 
 FUTURE DIRECTIONS
 -----------------
- -> find distance exactly
+ -> find distance exactly (do approx with decoder)
  -> know when the qudit generalisation makes non-0 k
-
-
-FOR PRESENTATION
-----------------
- -> find parameters of Gross code esque
