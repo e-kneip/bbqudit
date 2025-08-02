@@ -114,28 +114,26 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
 
-        # Set up mask to remove error messages
-        mask = np.ones(convolution.shape[0], dtype=bool)
+        # Set up masks, made up of every possible mask which removes a single row of error messages
+        mask = np.ones(
+            convolution.shape, dtype=bool
+        )  # TODO: possibly space ineffficient? Only really need to know which row is False not which row AND column
+        mask[0] = False
+        masks = np.array(
+            [np.roll(mask, i, axis=0) for i in range(convolution.shape[0])]
+        )
 
-        for j, error in enumerate(errs[:, 0]):
-            # Remove the j-th error message from the convolution
-            mask[j] = False
-            sub_convolution = convolution[mask, :]
+        # Compute the product of the transformed error messages
+        sub_convolutions = np.array([convolution for _ in range(convolution.shape[0])])
+        sub_convolutions = np.prod(sub_convolutions, axis=1, where=masks)
 
-            # Compute the product of the transformed error messages
-            sub_convolution = np.prod(sub_convolution, axis=0)
+        # Inverse Fourier transform the product to find the subset convolution
+        sub_convolution = np.fft.ifft(sub_convolutions, axis=1).real
 
-            # Inverse Fourier transform the product to find the subset convolution
-            sub_convolution = np.fft.ifft(sub_convolution, axis=0).real
-
-            # Pass message
-            P[i, error, :] = sub_convolution[syn_inv_permutation[errs[j, 1], :]]
-            # update the mask
-            mask[j] = True
-
-            # TODO: Find numpy function to compute masked products and lift out of loop
-            #       lift ifft out of loop
-            #       Store into P[i, :, :] == P[i, ...]
+        # Pass message
+        P[i, errs[:, 0], :] = np.take_along_axis(
+            sub_convolution, syn_inv_permutation[errs[:, 1], :], axis=1
+        )
 
 
 # TODO tip: np.einsum("j,i->ij", GF(np.arange(field)), 1 / GF(np.arange(1, field))) == np.arange(field)[np.newaxis, :] / GF(np.arange(1, field))[:, np.newaxis]
