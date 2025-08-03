@@ -114,18 +114,9 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
         # Fourier transform the relevant error messages
         convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
 
-        # Set up masks, made up of every possible mask which removes a single row of error messages
-        mask = np.ones(
-            convolution.shape, dtype=bool
-        )  # TODO: possibly space ineffficient? Only really need to know which row is False not which row AND column
-        mask[0] = False
-        masks = np.array(
-            [np.roll(mask, i, axis=0) for i in range(convolution.shape[0])]
-        )
-
-        # Compute the product of the transformed error messages
-        sub_convolutions = np.array([convolution for _ in range(convolution.shape[0])])
-        sub_convolutions = np.prod(sub_convolutions, axis=1, where=masks)
+        # Compute the product of the probabilities for the error messages, excluding one row of messages to avoid feedback
+        sub_convolutions = np.prod(convolution, axis=0)
+        sub_convolutions = sub_convolutions / convolution
 
         # Inverse Fourier transform the product to find the subset convolution
         sub_convolution = np.fft.ifft(sub_convolutions, axis=1).real
@@ -140,34 +131,19 @@ def _check_to_error_message(field, syndrome, P, Q, det_neighbourhood, permutatio
 #           np.einsum(..., optimize=True)
 def _error_to_check_message(prior, P, Q, err_neighbourhood):
     """Pass messages from errors to checks."""
-    for (
-        i,
-        dets,
-    ) in (
-        err_neighbourhood.items()
-    ):  # TODO: Vectorize this too (later) (consider using einsum)
+    for i, dets in err_neighbourhood.items():
+        # TODO: Vectorize this too (later) (consider using einsum)
+
         # Isolate the relevant check messages
         posterior = P[dets[:, 0], i, :]
-        mask = np.ones(posterior.shape[0], dtype=bool)
-        for j, detector in enumerate(dets[:, 0]):
-            # Remove the j-th check message from the posterior
-            # sub_posterior = np.delete(posterior, j, axis=0)
-            mask[j] = False
-            sub_posterior = posterior[mask, :]
-            # Compute the product of probabilities
-            sub_posterior = np.prod(sub_posterior, axis=0) * prior[i, :]
 
-            #################################################
-            # WARNING: sub_posterior is no longer normalised! <- check this?? I think I normalise in next line...
-            #################################################
+        sub_posteriors = np.prod(posterior, axis=0) * prior[i, :]
+        sub_posteriors = sub_posteriors / posterior
 
-            # Pass normalised message
-            Q[i, detector, :] = sub_posterior / np.sum(sub_posterior)
-
-            # update the mask
-            mask[j] = True
-
-            # TODO: (This first!) Similar fix to _check_to_error_message
+        # Pass normalised messages
+        Q[i, dets[:, 0], :] = (
+            sub_posteriors / np.sum(sub_posteriors, axis=1)[:, np.newaxis]
+        )
 
 
 def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
