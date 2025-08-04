@@ -151,10 +151,16 @@ def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     """Calculate the posterior probabilities and make hard decision on error."""
     posteriors = np.zeros_like(prior)
 
-    for i, dets in err_neighbourhood.items():
-        # TODO: Vectorize this:
-        posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
-        posteriors[i, :] = posterior
+    errs = list(err_neighbourhood.keys())
+    posteriors[errs, :] = (
+        np.array([np.prod(P[err_neighbourhood[i][:, 0], i, :], axis=0) for i in errs])
+        * prior[errs, :]
+    )
+
+    # for i, dets in err_neighbourhood.items():
+    #     # TODO: Vectorize this:
+    #     posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
+    #     posteriors[i, :] = posterior
 
     posteriors /= (
         np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
