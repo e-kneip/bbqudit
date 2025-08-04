@@ -30,7 +30,7 @@ class BivariateBicycle:
     m : int
         Dimension of right cyclic shift matrix.
     q : int
-        Defines CSS code construction H_x=(A|B) and H_y=(qB^T|(a.field-q)A^T).
+        Defines CSS code construction H_x=(A|B) and H_y=(qB^T|(a.field.p-q)A^T).
     name : str
         Name of the code.
     """
@@ -48,13 +48,13 @@ class BivariateBicycle:
             raise TypeError("m must be an integer")
         if not isinstance(q, int):
             raise TypeError("q must be an integer")
-        if not 0 < q or not q < a.field:
+        if not 0 < q or not q < a.field.p:
             raise ValueError(
                 "q must be a positive integer less than the field of the polynomials"
             )
-        if a.field != b.field:
+        if a.field.p != b.field.p:
             raise ValueError("Polynomials a and b must be over the same field")
-        if not isprime(a.field):
+        if not isprime(a.field.p):
             print("Warning: Field is not prime.")
             warnings.warn("Field is not prime.", ValueWarning)
         if not (isinstance(name, str) or name == None):
@@ -64,8 +64,10 @@ class BivariateBicycle:
         self.l, self.m, self.q = l, m, q
         self.hx = np.hstack((a(l, m), b(l, m)))
         self.hz = (
-            np.hstack((q * b(l, m).transpose(), (self.field - q) * a(l, m).transpose()))
-            % self.field
+            np.hstack(
+                (q * b(l, m).transpose(), (self.field.p - q) * a(l, m).transpose())
+            )
+            % self.field.p
         )
         self.A, self.B = self._monomials()
         self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = (
@@ -161,14 +163,14 @@ class BivariateBicycle:
                 y = int(np.nonzero(B[j][:, i])[0][0])
                 edges[(check_name, j)] = (
                     ("data_left", y),
-                    (q * int(B[j][y, i])) % field,
+                    (q * int(B[j][y, i])) % field.p,
                 )
             # Right data qubits
             for j in range(len(A)):
                 y = int(np.nonzero(A[j][:, i])[0][0])
                 edges[(check_name, len(A) + j)] = (
                     ("data_right", y),
-                    ((field - q) * int(A[j][y, i])) % field,
+                    ((field.p - q) * int(A[j][y, i])) % field.p,
                 )
         return edges
 
@@ -178,7 +180,7 @@ class BivariateBicycle:
         field = self.field
 
         # Set up Galois field array
-        GF = galois.GF(field)
+        GF = galois.GF(field.p)
         Hx_gal, Hz_gal = GF(hx), GF(hz)
         x_logicals, z_logicals = [], []
         x_check, z_check = Hx_gal, Hz_gal
@@ -247,7 +249,7 @@ class BivariateBicycle:
                 # IZ -> ZZ^-1, ZI -> Z^-1I
                 control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
                 power = gate[3]
-                state[control] = (state[control] - power * state[target]) % field
+                state[control] = (state[control] - power * state[target]) % field.p
                 continue
             if gate[0] == "Prep_X":
                 # Reset error to 0
@@ -269,26 +271,26 @@ class BivariateBicycle:
                 # Qubit gains a Z error
                 err_cnt += 1
                 qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["ZX", "YX"]:
                 # 1st qubit gains a Z error
                 err_cnt += 1
                 qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["XZ", "XY"]:
                 # 2nd qubit gains a Z error
                 err_cnt += 1
                 qubit = qubits_dict[gate[2]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["ZZ", "YY", "ZY", "YZ"]:
                 # Both qubits gain a Z error
                 err_cnt += 1
                 qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
-                state[qubit1] = (state[qubit1] + 1) % field
-                state[qubit2] = (state[qubit2] + 1) % field
+                state[qubit1] = (state[qubit1] + 1) % field.p
+                state[qubit2] = (state[qubit2] + 1) % field.p
                 continue
         return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt
 
@@ -323,7 +325,7 @@ class BivariateBicycle:
                 # XI -> XX, IX -> IX
                 control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
                 power = gate[3]
-                state[target] = (state[target] + power * state[control]) % field
+                state[target] = (state[target] + power * state[control]) % field.p
                 continue
             if gate[0] == "Prep_Z":
                 # Reset error to 0
@@ -345,26 +347,26 @@ class BivariateBicycle:
                 # Qubit gains an X error
                 err_cnt += 1
                 qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["XZ", "YZ"]:
                 # 1st qubit gains an X error
                 err_cnt += 1
                 qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["ZX", "ZY"]:
                 # 2nd qubit gains an X error
                 err_cnt += 1
                 qubit = qubits_dict[gate[2]]
-                state[qubit] = (state[qubit] + 1) % field
+                state[qubit] = (state[qubit] + 1) % field.p
                 continue
             if gate[0] in ["XX", "YY", "YX", "XY"]:
                 # Both qubits gain an X error
                 err_cnt += 1
                 qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
-                state[qubit1] = (state[qubit1] + 1) % field
-                state[qubit2] = (state[qubit2] + 1) % field
+                state[qubit1] = (state[qubit1] + 1) % field.p
+                state[qubit2] = (state[qubit2] + 1) % field.p
                 continue
         return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt
 
@@ -400,8 +402,8 @@ class BivariateBicycle:
             if gate[0] == "Meas_X":
                 # Meas_X error only affects Z stabilisers
                 if np.random.uniform() <= error_rates["Meas"]:
-                    # Random Z^k error for k = 1, 2, ..., field-1
-                    power = np.random.randint(field - 1)
+                    # Random Z^k error for k = 1, 2, ..., field.p-1
+                    power = np.random.randint(field.p - 1)
                     noisy_circ += [("Z", gate[1])] * (power + 1)
                     err_cnt += 1
                 noisy_circ.append(gate)
@@ -409,8 +411,8 @@ class BivariateBicycle:
             if gate[0] == "Meas_Z":
                 # Meas_Z error only affects X stabilisers
                 if np.random.uniform() <= error_rates["Meas"]:
-                    # Random X^k error for k = 1, 2, ..., field-1
-                    power = np.random.randint(field - 1)
+                    # Random X^k error for k = 1, 2, ..., field.p-1
+                    power = np.random.randint(field.p - 1)
                     noisy_circ += [("X", gate[1])] * (power + 1)
                     err_cnt += 1
                 noisy_circ.append(gate)
@@ -419,8 +421,8 @@ class BivariateBicycle:
                 # Prep_X error only affects Z stabilisers
                 noisy_circ.append(gate)
                 if np.random.uniform() <= error_rates["Prep"]:
-                    # Random Z^k error for k = 1, 2, ..., field-1
-                    power = np.random.randint(field - 1)
+                    # Random Z^k error for k = 1, 2, ..., field.p-1
+                    power = np.random.randint(field.p - 1)
                     noisy_circ += [("Z", gate[1])] * (power + 1)
                     err_cnt += 1
                 continue
@@ -428,8 +430,8 @@ class BivariateBicycle:
                 # Prep_Z error only affects X stabilisers
                 noisy_circ.append(gate)
                 if np.random.uniform() <= error_rates["Prep"]:
-                    # Random X^k error for k = 1, 2, ..., field-1
-                    power = np.random.randint(field - 1)
+                    # Random X^k error for k = 1, 2, ..., field.p-1
+                    power = np.random.randint(field.p - 1)
                     noisy_circ += [("X", gate[1])] * (power + 1)
                     err_cnt += 1
                 continue
@@ -438,13 +440,13 @@ class BivariateBicycle:
                 if np.random.uniform() <= error_rates["Idle"]:
                     ptype = np.random.randint(3)
                     if ptype == 0:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("X", gate[1])] * (power + 1)
                     elif ptype == 1:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Y", gate[1])] * (power + 1)
                     else:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Z", gate[1])] * (power + 1)
                     err_cnt += 1
                 continue
@@ -455,63 +457,63 @@ class BivariateBicycle:
                     err_cnt += 1
                     ptype = np.random.randint(15)
                     if ptype == 0:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("X", gate[1])] * (power + 1)
                         continue
                     if ptype == 1:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Y", gate[1])] * (power + 1)
                         continue
                     if ptype == 2:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Z", gate[1])] * (power + 1)
                         continue
                     if ptype == 3:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("X", gate[2])] * (power + 1)
                         continue
                     if ptype == 4:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Y", gate[2])] * (power + 1)
                         continue
                     if ptype == 5:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("Z", gate[2])] * (power + 1)
                         continue
                     if ptype == 6:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("XX", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 7:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("YY", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 8:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("ZZ", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 9:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("XY", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 10:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("YX", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 11:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("YZ", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 12:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("ZY", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 13:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("XZ", gate[1], gate[2])] * (power + 1)
                         continue
                     if ptype == 14:
-                        power = np.random.randint(field - 1)
+                        power = np.random.randint(field.p - 1)
                         noisy_circ += [("ZX", gate[1], gate[2])] * (power + 1)
                         continue
         return noisy_circ, err_cnt
@@ -601,7 +603,7 @@ class BivariateBicycle:
 
                         # Draw z stabiliser edges
                         if a_coefficients[k, l]:
-                            div = (self.q * a_coefficients[k, l]) % self.field
+                            div = (self.q * a_coefficients[k, l]) % self.field.p
                             if div == 1:
                                 ax.plot(
                                     [j, 0.5 - k + j + a_factors_min[0]],
@@ -640,8 +642,8 @@ class BivariateBicycle:
                         # Draw z stabiliser edges
                         if b_coefficients[k, l]:
                             div = (
-                                (self.field - self.q) * b_coefficients[k, l]
-                            ) % self.field
+                                (self.field.p - self.q) * b_coefficients[k, l]
+                            ) % self.field.p
                             if div == 1:
                                 ax.plot(
                                     [j, -k + j + b_factors_min[0]],
@@ -753,7 +755,7 @@ class BivariateBicycle:
         patch_colours = ["lightcoral", "lightseagreen", "royalblue", "gold"]
         for i in range(4):
             lines.append(mpatches.Patch(color=patch_colours[i]))
-        for i in range(1, self.field):
+        for i in range(1, self.field.p):
             (xline,) = ax.plot([0], [0], color="slategray")
             (zline,) = ax.plot([0], [0], color="darkgray")
             xline.set_dashes([16 / i**2, 2, 16 / i**2, 2])
@@ -846,7 +848,7 @@ class BivariateBicycle:
                 control, power = edges[(target, direction)]
                 U[qubits_dict[target], :] = (
                     U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                ) % field
+                ) % field.p
                 cnoted_data_qubits.append(control)
                 circ.append(("CNOT", control, target, power))
         for qubit in data_qubits:
@@ -865,7 +867,7 @@ class BivariateBicycle:
                     target, power = edges[(control, direction)]
                     U[qubits_dict[target], :] = (
                         U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                    ) % field
+                    ) % field.p
                     cnoted_data_qubits.append(target)
                     circ.append(("CNOT", control, target, power))
             if z_order[t] == "Idle":
@@ -877,7 +879,7 @@ class BivariateBicycle:
                     control, power = edges[(target, direction)]
                     U[qubits_dict[target], :] = (
                         U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                    ) % field
+                    ) % field.p
                     cnoted_data_qubits.append(control)
                     circ.append(("CNOT", control, target, power))
             for qubit in data_qubits:
@@ -896,7 +898,7 @@ class BivariateBicycle:
                 target, power = edges[(control, direction)]
                 U[qubits_dict[target], :] = (
                     U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                ) % field
+                ) % field.p
                 circ.append(("CNOT", control, target, power))
                 cnoted_data_qubits.append(target)
         for qubit in z_checks:
@@ -922,7 +924,7 @@ class BivariateBicycle:
                     target, power = edges[(control, direction)]
                     V[qubits_dict[target], :] = (
                         V[qubits_dict[target], :] + power * V[qubits_dict[control], :]
-                    ) % field
+                    ) % field.p
         for t in range(len(z_order)):
             if not z_order[t] == "Idle":
                 for target in z_checks:
@@ -930,7 +932,7 @@ class BivariateBicycle:
                     control, power = edges[(target, direction)]
                     V[qubits_dict[target], :] = (
                         V[qubits_dict[target], :] + power * V[qubits_dict[control], :]
-                    ) % field
+                    ) % field.p
         if not np.array_equal(U, V):
             raise ValueError(
                 "Syndrome circuit does not match max depth syndrome circuit, check stabiliser orders"
@@ -1062,7 +1064,7 @@ class BivariateBicycle:
             ]  # 1 indicates X error
             syndrome_final_logical = (
                 np.array(z_logicals) @ state_data_qubits
-            ) % field  # Check if X error flips logical Z outcome
+            ) % field.p  # Check if X error flips logical Z outcome
 
             # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
             syndrome_history_copy = syndrome_history.copy()
@@ -1071,7 +1073,7 @@ class BivariateBicycle:
                 assert len(pos) == num_cycles + 2
                 for row in range(1, num_cycles + 2):
                     syndrome_history[pos[row]] += syndrome_history_copy[pos[row - 1]]
-            syndrome_history %= field
+            syndrome_history %= field.p
 
             # Combine syndrome_history and syndrome_final_logical
             syndrome_history_augmented = np.hstack(
@@ -1123,7 +1125,9 @@ class BivariateBicycle:
 
             # Compute final state of data qubits and logical effect
             state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]
-            syndrome_final_logical = (np.array(x_logicals) @ state_data_qubits) % field
+            syndrome_final_logical = (
+                np.array(x_logicals) @ state_data_qubits
+            ) % field.p
 
             # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
             syndrome_history_copy = syndrome_history.copy()
@@ -1132,7 +1136,7 @@ class BivariateBicycle:
                 assert len(pos) == num_cycles + 2
                 for row in range(1, num_cycles + 2):
                     syndrome_history[pos[row]] += syndrome_history_copy[pos[row - 1]]
-            syndrome_history %= field
+            syndrome_history %= field.p
 
             # Combine syndrome_history and syndrome_final_logical
             syndrome_history_augmented = np.hstack(
