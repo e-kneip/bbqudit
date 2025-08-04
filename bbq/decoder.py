@@ -4,7 +4,7 @@ import numpy as np
 import galois
 from numba import njit
 
-from bbq.utils import err_to_det, det_to_err, rref, find_pivots
+from bbq.utils import err_to_det, det_to_err, rref
 from bbq.field import Field
 
 
@@ -515,11 +515,8 @@ def osd(
     permutation, inv_permutation = _find_permutation(certainties)
     h_eff = h_eff[:, permutation]
 
-    # Step 2: decompose h_eff into rank(h_eff) linearly independent columns and rows (P) using plu decomposition
-    # P, pivot_rows, pivot_cols = find_pivots(GF(h_eff))
-    h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = rref(
-        GF(h_eff), GF(syndrome)
-    )
+    # Step 2: decompose h_eff into rank(h_eff) linearly independent columns and rows (P)
+    h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = rref(field, h_eff, syndrome)
     P = h_eff[:, pivot_cols][pivot_rows, :]
 
     # Step 3: solve (wrt order) for the error mechanism with highest likelihood
