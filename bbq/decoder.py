@@ -150,25 +150,24 @@ def _error_to_check_message(prior, P, Q, err_neighbourhood):
 def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
     """Calculate the posterior probabilities and make hard decision on error."""
     posteriors = np.zeros_like(prior)
-    error = np.zeros(n_errors, dtype=int)
 
     for i, dets in err_neighbourhood.items():
         # TODO: Vectorize this:
         posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
-        posterior /= np.sum(posterior) - posterior
-        ####### do I have blowing up problems here??? yes, yes you do...
         posteriors[i, :] = posterior
-        ############### does OSD want the likelihoods or the probabilities??? (I think likelihoods here)
-        # TODO: Vectorize this ^
 
-        # TODO: Do this as a separate operation (vectorized)
-        max_lik = np.argmax(posterior)
-        if posterior[max_lik] >= 1:  # Okay to keep this as a loop
-            error[i] = max_lik
+    posteriors /= (
+        np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
+    )  ####### do I have blowing up problems here??? yes, yes you do...
 
-        ##############################################
-        # WARNING: will pick lowest power error if there are 2 error types (eg X and X^2) that are likely (ONLY happens when eg likelihoods are (0, 1, 1) so doing > 1 instead of >= 1 would fix this *I think, possibly need > smaller number for higher field, eg (1/d)/(1-1/d)=1/d-1??*)
-        ##############################################
+    max_lik = np.argmax(posteriors, axis=1)
+    # if 50:50 chance between 2 errors, max_lik will pick the 1st in row (lower power)
+    error = np.array(
+        [
+            max_lik[i] if posteriors[i, max_lik[i]] >= 1 else 0
+            for i in range(posteriors.shape[0])
+        ]
+    )
 
     return error, posteriors
 
