@@ -22,6 +22,12 @@ class Field:
         """Canonical string representation of Field."""
         return f"Field({self.p})"
 
+    def __eq__(self, other):
+        """Check if two Field instances are equal."""
+        if isinstance(other, Field):
+            return self.p == other.p
+        return False
+
     def _inverse(self) -> np.ndarray[int]:
         """Construct division table for a finite field, using brute force method."""
         # TODO: could use Euclid's extended algorithm (look at Finite field arithmetic Wikipedia page)
