@@ -157,10 +157,10 @@ def _calculate_posterior(prior, n_errors, err_neighbourhood, P):
         * prior[errs, :]
     )
 
-    # for i, dets in err_neighbourhood.items():
-    #     # TODO: Vectorize this:
-    #     posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
-    #     posteriors[i, :] = posterior
+    for i, dets in err_neighbourhood.items():
+        # TODO: Vectorize this:
+        posterior = np.prod(P[dets[:, 0], i, :], axis=0) * prior[i, :]
+        posteriors[i, :] = posterior
 
     posteriors /= (
         np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
@@ -527,8 +527,12 @@ def osd(
     # Step 3: solve (wrt order) for the error mechanism with highest likelihood
     if order == 0:
         # Solve linear system P * short_error = syndrome (from rref) -> h_eff * error = syndrome with 0s to extend short_error
-        error = np.zeros(n_errors)
-        error[pivot_cols] = syndrome_rref[pivot_rows]
+        error = np.zeros(n_errors, dtype=int)
+        ind = [pivot_rows.index(i) for i in sorted(pivot_rows)]
+        error[np.array(pivot_cols)[ind]] = syndrome_rref
+
+        assert ((h_eff @ error) % field.p == syndrome).all()
+
         error = error[inv_permutation]
     else:
         raise NotImplementedError("OSD with order > 0 is not implemented yet.")
