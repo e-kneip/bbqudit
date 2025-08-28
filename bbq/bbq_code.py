@@ -76,6 +76,10 @@ class BivariateBicycle:
         self.edges = self._edges()
         self.name = name
         self.x_logicals, self.z_logicals = self._compute_logicals()
+        self.distance = None
+
+        self.parameters = [self.hx.shape[1], len(self.x_logicals), self.distance]
+
         if not self.x_logicals:
             print("Warning: No X logicals found for these parameters.")
             warnings.warn("No X logicals found for these parameters.", ValueWarning)
