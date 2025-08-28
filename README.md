@@ -1,4 +1,5 @@
-# BBQudit
+# BBQudit  <img width="30" height="30" alt="image" src="https://github.com/user-attachments/assets/95c90d0b-46ee-4520-ac65-14247ae958ca" />
+
 
 BBQudit is a Python package that constructs and simulates qudit bivariate bicycle codes for any given bivariate polynomials over $GF(p)$. In particular, it provides the following features:
 - **Construction** - given two bivariate polynomials over $GF(p)$, initialise a qudit bivariate bicycle code, supplying parity check matrices, $H_X, H_Z$, logicals operators, and qudit connectivity.
