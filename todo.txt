@@ -9,6 +9,10 @@ SPEEEEEEEED
  -> follow the profile
 
 
+BUG
+ -> Currently not catching if field is not same as eg h or syndrome, but idk how to check bcos h/syn do not have field associated...
+
+
 
 Lil bugs:
  -> should be using the Hx, Hy to make tanner instead of polys?
