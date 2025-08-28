@@ -170,8 +170,11 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# ignore
-notebooks
-benchtimo.py
-results_23-05-2025_16-19.json
-results.txt
+
+# ignore at merge
+
+# notebooks
+# benchtimo.py
+# results_23-05-2025_16-19.json
+# results.txt
+# todo.txt
