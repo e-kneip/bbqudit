@@ -128,7 +128,6 @@ def bp_distance(
     for logical in logicals:
         h_log = np.vstack((h, logical))
         log, _ = bp_osd(field, h_log, syndrome, prior, max_iter, order)
-        print(log)
         dist = len(np.nonzero(log)[0])
         if dist < d:
             d = dist
