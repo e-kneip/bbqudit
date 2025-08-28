@@ -170,8 +170,11 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# ignore todo list
-stas/dosd.py
-stas/qudit_toric_code.py
-stas/visualisation.py
-niall.py
+
+# ignore at merge
+
+notebooks
+benchtimo.py
+results_23-05-2025_16-19.json
+results.txt
+todo.txt
