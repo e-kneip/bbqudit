@@ -43,7 +43,25 @@ class QuditCode:
         # Compute logicals and parameters
         self.x_logicals, self.z_logicals = logicals(field, hx, hz)
         self.n, self.k = self.hx.shape[1], len(self.x_logicals)
-        if distance is False:
+        self.dx, self.dz, self.d = self._compute_distance()
+
+        self.parameters = (self.n, self.k, self.d)
+
+    def __repr__(self):
+        """Return canonical string representation of the code."""
+        return f"QuditCode({self.field.__repr__()}, {self.hx.__repr__()}, {self.hz.__repr__()}, {self.distance.__repr__()}, {self.name.__repr__()})"
+
+    def __str__(self):
+        """Return string representation of the code."""
+        if self.distance is False:
+            dist = f"<{self.d}"
+        else:
+            dist = f"{self.d}"
+        return f"{self.name}: [[{self.n}, {self.k}, {dist}]]_{self.field.p} \n Hx = {self.hx} \n Hz = {self.hz}"
+
+    def _compute_distance(self):
+        """Return distances dx, dz and d of the code."""
+        if self.distance is False:
             self.dx = min(
                 len(np.nonzero(self.x_logicals[i])[0])
                 for i in range(len(self.x_logicals))
@@ -53,24 +71,13 @@ class QuditCode:
                 for i in range(len(self.z_logicals))
             )
             self.d = min(self.dx, self.dz)
-        elif distance is True:
+        elif self.distance is True:
             self.dx, self.dz = (
                 bp_distance(self.field, self.hx, self.x_logicals),
                 bp_distance(self.field, self.hz, self.z_logicals),
             )
             self.d = min(self.dx, self.dz)
         else:
-            self.dx, self.dz = distance
-            self.d = min(distance)
-
-        self.parameters = (self.n, self.k, self.d)
-
-    def __repr__(self):
-        return f"QuditCode({self.field.__repr__()}, {self.hx.__repr__()}, {self.hz.__repr__()}, {self.distance.__repr__()}, {self.name.__repr__()})"
-
-    def __str__(self):
-        if self.distance is False:
-            dist = f"<{self.d}"
-        else:
-            dist = f"{self.d}"
-        return f"{self.name}: [[{self.n}, {self.k}, {dist}]]_{self.field.p} \n Hx = {self.hx} \n Hz = {self.hz}"
+            self.dx, self.dz = self.distance
+            self.d = min(self.dx, self.dz)
+        return self.dx, self.dz, self.d
