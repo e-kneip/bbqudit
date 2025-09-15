@@ -4,17 +4,83 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def generate_syndrome():
-    pass
+def generate_syndrome_cc(field, h, p):
+    """Generate a random error and its corresponding syndrome, under code capacity."""
+    n_qudits = h.shape[1]
+    error = np.zeros(n_qudits, dtype=int)
+    error_mask = np.random.rand(n_qudits) < p
+    for i in np.where(error_mask)[0]:
+        error[i] = np.random.randint(1, field.p)
+    syndrome = (h @ error) % field.p
+    return error, syndrome
+
+
+def pre_simulate(
+    field: int,
+    h: np.ndarray,
+    physical_error_rate: float | dict[str, float],
+    logicals: np.ndarray,
+    noise_model: str,
+    rounds: int = None,
+    filename: str = None,
+) -> dict:
+    """Generate prior and decoding matrices for a qudit simulation under the given noise model.
+
+    Parameters
+    ----------
+    field : int
+        The dimension of the qudit code.
+    h : np.ndarray
+        The parity check matrix of the code.
+    physical_error_rate : float | dict[str, float]
+        The physical error rate to simulate, either a single float or a dictionary of {error_type : physical_error_rate} for error_type = 'Meas', 'Prep', 'Idle', 'CNOT'.
+    logicals : np.ndarray
+        The logical operators of the code.
+    noise_model : str
+        The noise model to use, either "code_capacity" or "circuit_level".
+    rounds : int, optional
+        The number of rounds of stabiliser measurements, by default None. Mandatory for "circuit_level" noise model.
+    filename : str, optional
+        The filename to save the results to, by default None will set name to results_date.
+
+    Returns
+    -------
+    prep_data : dict
+        The data needed for the simulation for the given noise model, with keys x_prior, hx, lx.
+    """
+    prep_data = {}
+
+    if noise_model == "circuit_level":
+        raise NotImplementedError("Circuit level noise model not implemented yet")
+    else:
+        # Construct error probability
+        n_qudits = h.shape[1]
+        channel_prob_x = np.ones(n_qudits) * physical_error_rate
+
+        x_prior = np.zeros((len(channel_prob_x), field.p), dtype=float)
+
+        for i, prob in enumerate(channel_prob_x):
+            x_prior[i, 0] = 1 - prob
+            for j in range(1, field.p):
+                x_prior[i, j] = prob / (field.p - 1)
+
+        prep_data = {
+            "x_prior": x_prior,
+            "hx": h,
+            "lx": logicals,
+        }
+    return prep_data
 
 
 def simulate(
     field: int,
     h: np.ndarray,
+    physical_error: list[float],
     logicals: np.ndarray,
     noise_model: str,
-    num_failures: int = 1,
+    num_failures: list[int] | int,
     rounds: int = None,
+    updates: bool = True,
     filename: str = None,
 ) -> dict:
     """Simulate the qudit code under the given noise model.
@@ -25,6 +91,8 @@ def simulate(
         The dimension of the qudit code.
     h : np.ndarray
         The parity check matrix of the code.
+    physical_error : list[float]
+        The physical error rates to simulate.
     logicals : np.ndarray
         The logical operators of the code.
     noise_model : str
@@ -33,6 +101,8 @@ def simulate(
         The number of failures to stop simulation at, by default 1.
     rounds : int, optional
         The number of rounds of stabiliser measurements, by default None. Mandatory for "circuit_level" noise model.
+    updates : bool, optional
+        Whether to print updates during the simulation, by default True.
     filename : str, optional
         The filename to save the results to, by default None will set name to results_date.
 
@@ -68,7 +138,57 @@ def simulate(
     # May want different functions for different noise models
     # Simulate just x errors or do both?
 
-    pass
+    if noise_model == "circuit_level":
+        raise NotImplementedError("Circuit level noise model not implemented yet")
+
+    results = []
+
+    for p in physical_error:
+        failures = 0
+        num_trials = 0
+
+        pre_data = pre_simulate(
+            field,
+            h,
+            p,
+            logicals,
+            noise_model,
+            rounds,
+            filename,
+        )
+        x_prior, hx, lx = pre_data["x_prior"], pre_data["hx"], pre_data["lx"]
+
+        while failures < num_failures:
+            # Generate syndrome
+            error, syndrome = generate_syndrome_cc(field, hx, p)
+
+            # Decode
+            # guessed_error, decoder_success, bp_success, posterior = belief_propagation(field, h, syndrome, x_prior, max_iter, debug=True)
+            guessed_error, decoder_success, bp_success, posterior = bp_osd(
+                field, hx, syndrome, x_prior, max_iter, order=0, debug=True
+            )
+            error_difference = (error - guessed_error) % field.p
+            logical_effect = (np.array(lx) @ error_difference) % field.p
+
+            # Check success
+            # if np.any(logical_effect != 0) or not decoder_success:
+            if np.any(logical_effect != 0):
+                failures += 1
+                print(
+                    f"Found {failures} / {num_failures}, with num_trials : {num_trials}"
+                )
+            elif num_trials % 100 == 0:
+                print(
+                    f"UPDATE: Found {failures} / {num_failures}, with num_trials : {num_trials}"
+                )
+
+            num_trials += 1
+
+        results.append(num_trials)
+
+        print(f"Finished p={p} with num_trials={num_trials}")
+        print("------------------------------------------------------------------")
+    return results
 
 
 def process_results(
@@ -133,7 +253,7 @@ def plot_results(
     inset_ticks: list[float] = [0.1, 0.12, 0.14, 0.16],
     legend: list[str] = [],
     title: str = "Threshold Plot",
-):
+) -> None:
     """Plot the results of a simulation.
 
     Parameters
