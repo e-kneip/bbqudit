@@ -1,82 +1,98 @@
 """Implementation of a selection of decoders for qudits."""
 
-import numpy as np
-
-# import galois
-from numba import njit
-
 from bbq.utils import err_to_det, det_to_err
 from bbq.field import Field
 
 from abc import ABC, abstractmethod
+from numba import njit
+import numpy as np
 
 
 class Decoder(ABC):
     """Base class for decoders."""
 
-    @abstractmethod
     @property
+    @abstractmethod
+    def field(self) -> int:
+       """The qudit dimension."""
+       pass
+
+    @property
+    @abstractmethod
     def h(self) -> np.ndarray[int]:
-        """The parity check matrix."""
-        pass
+       """The parity check matrix."""
 
-    @abstractmethod
     @property
+    @abstractmethod
     def error_channel(self) -> np.ndarray[float]:
-        """The error channel probabilities."""
-        pass
+       """The error channel probabilities."""
 
     @abstractmethod
-    def decode(
-        self,
-        field: Field,
-        h: np.ndarray[int],
-        syndrome: np.ndarray[int],
-        error_channel: np.ndarray[float],
-    ) -> np.ndarray[int]:
+    def decode(self, syndrome: np.ndarray[int]) -> np.ndarray[int]:
         """Decode the syndrome wrt the parity check matrix and error channel.
 
         Parameters
         ----------
-        field : Field
-            The qudit dimension.
-        h : nd.array[int]
-            The parity check matrix.
         syndrome : nd.array[int]
             The syndrome of the error.
-        error_channel : nd.array[float]
-            The probability of each error mechanism.
 
         Returns
         -------
         error : nd.array[int]
             The predicted error mechanism.
         """
-        if not np.all(h < field.p):
+        if not np.all(0 <= syndrome < self.field.p):
             raise ValueError(
-                f"h must be a matrix over the field, encountered values >= {field.p}"
+                f"syndrome must be a vector over the field, encountered values >= {self.field.p}"
             )
-        if not np.all(syndrome < field.p):
-            raise ValueError(
-                f"syndrome must be a vector over the field, encountered values >= {field.p}"
-            )
-        if not syndrome.shape == (h.shape[0],):
+        if not syndrome.shape == (self.h.shape[0],):
             raise ValueError(
                 "syndrome must have the same number of entries as there are detectors, i.e. rows of h"
             )
-        if not error_channel.shape == (h.shape[1],):
+        pass
+
+    def _validate_channel(self, error_channel: np.ndarray[float]) -> None:
+        if not error_channel.shape == (self.h.shape[1],):
             raise ValueError(
                 "error_channel must have the same number of entries as there are error mechanisms, i.e. columns of h"
             )
-        pass
+        if not np.all(0 <= error_channel) & np.all(error_channel <= 1) & np.isclose(np.sum(error_channel), 1):
+            raise ValueError("error_channel must be filled with probabilities, which sum to 1")
+
 
 
 class TempDecoder(Decoder):
     """A temporary decoder class for testing purposes."""
 
-    def __init__(self, h, error_channel):
+    def __init__(self, field, h, error_channel):
+        self._field = field
         self.h = h
         self.error_channel = error_channel
+
+    @property
+    def field(self):
+        return self._field
+    
+    @property
+    def h(self):
+        return self._h
+    
+    @h.setter
+    def h(self, value):
+        self.field._validate(value)
+        self._h = value
+
+    @property
+    def error_channel(self):
+        return self._error_channel
+    
+    @error_channel.setter
+    def error_channel(self, value):
+        self._validate_channel(value)
+        self._error_channel = value
+
+    def decode(self):
+        pass
 
 
 def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:

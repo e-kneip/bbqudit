@@ -1,12 +1,3 @@
-To do a code capacity simulation:
- Input: H, p, logicals, decoder
- 1. Generate error channel using (p)
- 2. Generate syndrome using (H, p)
- 3. Decode syndrome to produce error using (H, p, decoder, error_channel, syndrome)
- 4. Check if error makes logical mistake (using logicals, real_error, guessed_error)
- Generally: update file with saved parameters (current_round: error_rate, num_trials, failures; noise_model; [rounds]; num_failures; error_rates, results)
-
-
 Decoder class:
  -> init takes all decoder specific parameters, eg order, max_iter, ...
  -> Decoder.decode(H, syndrome, error_channel)

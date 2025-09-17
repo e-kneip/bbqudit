@@ -42,6 +42,11 @@ class Field:
                         break
         return table
 
+    def _validate(self, array: np.ndarray[int]) -> None:
+        """Check that all elements in the array are valid field elements."""
+        if not np.all(0 <= array) & np.all(array < self.p):
+            raise ValueError(f"Array contains elements not in the field GF({self.p})")
+
     def add(self, a: int, b: int) -> int:
         """Add two elements in the field."""
         return (a + b) % self.p
