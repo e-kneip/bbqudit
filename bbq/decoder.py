@@ -8,6 +8,76 @@ from numba import njit
 from bbq.utils import err_to_det, det_to_err
 from bbq.field import Field
 
+from abc import ABC, abstractmethod
+
+
+class Decoder(ABC):
+    """Base class for decoders."""
+
+    @abstractmethod
+    @property
+    def h(self) -> np.ndarray[int]:
+        """The parity check matrix."""
+        pass
+
+    @abstractmethod
+    @property
+    def error_channel(self) -> np.ndarray[float]:
+        """The error channel probabilities."""
+        pass
+
+    @abstractmethod
+    def decode(
+        self,
+        field: Field,
+        h: np.ndarray[int],
+        syndrome: np.ndarray[int],
+        error_channel: np.ndarray[float],
+    ) -> np.ndarray[int]:
+        """Decode the syndrome wrt the parity check matrix and error channel.
+
+        Parameters
+        ----------
+        field : Field
+            The qudit dimension.
+        h : nd.array[int]
+            The parity check matrix.
+        syndrome : nd.array[int]
+            The syndrome of the error.
+        error_channel : nd.array[float]
+            The probability of each error mechanism.
+
+        Returns
+        -------
+        error : nd.array[int]
+            The predicted error mechanism.
+        """
+        if not np.all(h < field.p):
+            raise ValueError(
+                f"h must be a matrix over the field, encountered values >= {field.p}"
+            )
+        if not np.all(syndrome < field.p):
+            raise ValueError(
+                f"syndrome must be a vector over the field, encountered values >= {field.p}"
+            )
+        if not syndrome.shape == (h.shape[0],):
+            raise ValueError(
+                "syndrome must have the same number of entries as there are detectors, i.e. rows of h"
+            )
+        if not error_channel.shape == (h.shape[1],):
+            raise ValueError(
+                "error_channel must have the same number of entries as there are error mechanisms, i.e. columns of h"
+            )
+        pass
+
+
+class TempDecoder(Decoder):
+    """A temporary decoder class for testing purposes."""
+
+    def __init__(self, h, error_channel):
+        self.h = h
+        self.error_channel = error_channel
+
 
 def dijkstra(h_eff: np.ndarray, syndrome: np.ndarray) -> np.ndarray:
     """Order error mechanisms by distance to syndrome.
