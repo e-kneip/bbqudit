@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load data
-filenames = ["code_capacity_results_17-09-2025_15-16.json"]
+filenames = ["3x3_toric.json", "5x5_toric.json", "7x7_toric.json"]
 legend = []
 noise_model = "code_capacity"
 rounds = None

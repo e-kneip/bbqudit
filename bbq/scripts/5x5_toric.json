@@ -1,0 +1,24 @@
+{
+    "qec_code_name": "5x5 Qubit Toric Code",
+    "noise_model": "code_capacity",
+    "num_failures": 3,
+    "error_rates": [
+        0.19952623149688797,
+        0.11220184543019636,
+        0.06309573444801933,
+        0.03548133892335755,
+        0.0199526231496888
+    ],
+    "results": [
+        6,
+        10,
+        84,
+        135,
+        2181
+    ],
+    "current_round": {
+        "error_rate": 0.0199526231496888,
+        "num_trials": 2181,
+        "failures": 3
+    }
+}
