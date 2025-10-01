@@ -1,16 +1,7 @@
-# To do a code capacity simulation:
-#  Input: H, p, logicals, decoder
-#  1. Generate error channel using (p)
-#  2. Generate syndrome using (H, p)
-#  3. Decode syndrome to produce error using (H, p, decoder, error_channel, syndrome)
-#  4. Check if error makes logical mistake (using logicals, real_error, guessed_error)
-#  Generally: update file with saved parameters (current_round: error_rate, num_trials, failures; noise_model; [rounds]; num_failures; error_rates, results)
-
-
 from bbq.field import Field
 from bbq.polynomial import Monomial
 from bbq.bbq_code import BivariateBicycle
-from bbq.decoder import bp_osd
+from bbq.decoder import BPOSD
 
 import numpy as np
 import datetime
@@ -60,7 +51,10 @@ for ind, p in enumerate(physical_error):
         x_prior[i, 0] = 1 - prob
         for j in range(1, field.p):
             x_prior[i, j] = prob / (field.p - 1)
-    
+
+    print('Setting up decoder...')
+    bposd = BPOSD(field, hx, x_prior, max_iter, order)
+
     failures = 0
     num_trials = 0
 
@@ -77,7 +71,7 @@ for ind, p in enumerate(physical_error):
         syndrome = (hx @ error) % field.p
 
         # Decode
-        guessed_error, decoder_success, bp_success, posterior = bp_osd(field, hx, syndrome, x_prior, max_iter, order=0, debug=True)
+        guessed_error, decoder_success, bp_success, posterior = bposd.decode(syndrome, debug=True)
         error_difference = (error - guessed_error) % field.p
         logical_effect = (np.array(lx) @ error_difference) % field.p
 
