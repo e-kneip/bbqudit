@@ -4,7 +4,7 @@ import numpy as np
 import galois
 
 from bbq.field import Field
-from bbq.decoder import bp_osd
+from bbq.decoder import BPOSD
 
 
 def _ker_im(
@@ -127,7 +127,8 @@ def bp_distance(
 
     for logical in logicals:
         h_log = np.vstack((h, logical))
-        log, _ = bp_osd(field, h_log, syndrome, prior, max_iter, order)
+        bp_osd = BPOSD(field, h_log, prior, max_iter, order)
+        log, _ = bp_osd.decode(syndrome)
         dist = len(np.nonzero(log)[0])
         if dist < d:
             d = dist
