@@ -1,6 +1,7 @@
 """Utility functions for the bbqudit package."""
 
 import numpy as np
+import numba
 
 
 def cyclic_permutation(dim: int, shift: int) -> np.ndarray:
@@ -74,3 +75,20 @@ def det_to_err(h_eff: np.ndarray) -> dict:
                 ]
             )
     return det_neighbourhood
+
+@numba.njit
+def norder(dim, order):
+    """Generate all binary masks of errors with up to order non-zero entries."""
+    masks = []
+    mask = [0 for _ in range(dim)]
+    for decimal in range(2**dim):
+        index = 0
+        for i in range(dim):
+            val = decimal // (2**i) % 2
+            mask[i] = val
+            if val:
+                index += 1
+        if index > order:
+            continue  # ideally would break out of two loops here :(
+        masks.append(mask.copy())
+    return np.array(masks)  # make sparse?

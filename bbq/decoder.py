@@ -1,6 +1,6 @@
 """Implementation of a selection of decoders for qudits."""
 
-from bbq.utils import err_to_det, det_to_err
+from bbq.utils import err_to_det, det_to_err, norder
 from bbq.field import Field
 
 from abc import ABC, abstractmethod
@@ -28,9 +28,9 @@ class Decoder(ABC):
     def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float]):
         if not error_channel.shape == (h.shape[1], field.p):
             raise ValueError(
-                "error_channel must have the same number of entries as there are error mechanisms, i.e. columns of h"
+                "error_channel must have the same number of rows as there are error mechanisms, i.e. columns of h, and same number of columns as the field size."
             )
-        if not np.all(0 <= error_channel) & np.all(error_channel <= 1) & (np.isclose(np.sum(error_channel), 1) | np.all(np.sum(error_channel, axis=1) == 1)):
+        if not np.all(0 <= error_channel) & np.all(error_channel <= 1) & (np.isclose(np.sum(error_channel), 1) | np.all(np.isclose(np.sum(error_channel, axis=1), 1))):  # TODO: not sure when first of or statements happens...
             raise ValueError("error_channel must be filled with probabilities, which sum to 1")
         field._validate(h)
 
@@ -318,7 +318,7 @@ class BP(Decoder):
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
 
-    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], posterior: np.ndarray[float], certainties: np.ndarray[float] | None = None, order: int = 0):
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], posterior: np.ndarray[float], certainties: np.ndarray[float] | None = None, order: int = 0, power: int = 1):
         """
         Initialise an ordered statistics decoder.
         
@@ -330,14 +330,41 @@ class OSD(Decoder):
             The likelihoods of each error mechanism for ordering, default None constructs certainties from posterior.
         order : int
             The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
+        power : int
+            The number of most likely error powers to consider for each error mechanism. Default is 1.
         """
         if not order >= 0:
             raise ValueError("order must be a non-negative integer")
+        if power > 1:
+            raise NotImplementedError("power > 1 is not implemented yet. Big linear combos to figures out...")
         
         super().__init__(field, h, error_channel)
         self.posterior = posterior
         self.certainties = certainties
         self.order = order
+        if power > 1:
+            raise NotImplementedError("power > 1 is not implemented yet.")
+        self.power = power
+
+        if order:
+            _, _, pivot_cols, pivot_rows, _ = self.field.rref(self.h, np.zeros(self.h.shape[0], dtype=int))
+            rank = min(len(pivot_cols), len(pivot_rows))  # could also do n - k = m = 2*rank, or store the output of rref for later
+            dim = self.h.shape[1] - rank
+            if order == 1:
+                self.order_mask = self._order_one(dim)
+            else:
+                self.order_mask = norder(dim, self.order)
+            self.power_like = self._power()
+    
+    def _order_one(self, dim):
+        """Generate all binary masks of errors with up to 1 non-zero entry."""
+        masks = np.eye(dim, dtype=int)
+        return np.vstack((np.zeros((1, dim), dtype=int), masks))
+
+    def _power(self):
+        """Order the non-0 powers of error mechanisms by likelihood, i.e. for error mechanism i, cover[i] gives the indices of the error powers in descending order of likelihood."""
+        cover = np.argsort(-self.posterior[:, 1:], axis = 1)
+        return cover + 1
 
     def _find_permutation(self, certainties):
         """Find the permutation of the error mechanisms based on their likelihood."""
@@ -347,189 +374,6 @@ class OSD(Decoder):
         inv_permutation[permutation] = np.arange(len(permutation))
 
         return permutation, inv_permutation
-
-
-    # def _decompose(field, h_eff, syndrome):
-    #     """Decompose h_eff into rank(h_eff) linearly independent columns (P) and the remainder (B) using rref."""
-
-    #     # Convert to galois field
-    #     GF = galois.GF(field)
-    #     h_gf = GF(h_eff.copy())
-    #     syndrome_gf = GF(syndrome.copy())
-
-    #     # Find the reduced row echelon form (RREF) and identify pivot columns
-    #     h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = rref(
-    #         h_gf, syndrome_gf
-    #     )  # may need pivots for qudits???
-    #     rank = h_rref.shape[0]
-    #     non_pivot_cols = [i for i in range(h_eff.shape[1]) if i not in pivot_cols]
-
-    #     # Select the first rank(h_gf) linearly independent columns as basis set in P, others in B
-    #     P = h_rref[:, pivot_cols][pivot_rows, :]
-    #     assert P.shape == (rank, rank)
-    #     B = h_rref[:, non_pivot_cols]
-
-    #     return P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref
-
-
-    # def _rank_errors(  # TODO: Too many args
-    #     g,
-    #     field,
-    #     n_errors,
-    #     rank,
-    #     h_rref,
-    #     syndrome_rref,
-    #     B,
-    #     P,
-    #     posterior,
-    #     pivot_cols,  # TODO: Replace with a binary index and compute inside _rank_errors
-    #     non_pivot_cols,  # TODO: Remove
-    # ):
-    #     """Calculate the error mechanism, satisfying the syndrome, with highest likelihood"""
-
-    #     assert (
-    #         g.shape == (n_errors - rank,)
-    #     )  # could get rid of this assert if inputs are obvious (osd_0 yes, check for higher orders)
-    #     GF = galois.GF(field)
-
-    #     # Solve linear system
-    #     remainder = syndrome_rref - B @ g
-    #     fix = np.linalg.solve(P, remainder)
-    #     assert (P @ fix + B @ g == syndrome_rref).all()
-
-    #     # Rank the errors by likelihood
-    #     score = 0
-    #     error = GF.Zeros(n_errors)
-
-    #     # TODO: error[pivot_cols] = fix
-    #     #       p = posterior[pivot_cols, fix]
-    #     # Then check if p > 0 ... (vectorized or keep the loop)
-
-    #     for i in range(rank):
-    #         p = posterior[pivot_cols[i], fix[i]]
-    #         error[pivot_cols[i]] = fix[i]
-    #         if p > 0:
-    #             score += np.log(p)
-    #         else:
-    #             score -= 1000
-
-    #     for i in range(n_errors - rank):
-    #         p = posterior[non_pivot_cols[i], g[i]]
-    #         error[non_pivot_cols[i]] = g[i]
-    #         if p > 0:
-    #             score += np.log(p)
-    #         else:
-    #             score -= 1000
-    #     # all of the for loop ranking above could be done with lambda functions???
-
-    #     # Assert syndrome is satisfied
-    #     assert (h_rref @ error == syndrome_rref).all()
-
-    #     return np.array(error), score
-
-
-    # def slow_osd(
-    #     field: int,
-    #     h_eff: np.ndarray,
-    #     syndrome: np.ndarray,
-    #     posterior: np.ndarray,
-    #     certainties: np.ndarray = None,
-    #     order: int = 0,
-    #     debug: bool = False,
-    # ) -> tuple[np.ndarray, bool]:
-    #     """
-    #     Decode the syndrome using an ordered statistics decoder (with Gaussian elimination).
-
-    #     Parameters
-    #     ----------
-    #     field : int
-    #         The qudit dimension.
-    #     h_eff : nd.array
-    #         The effective parity check matrix.
-    #     syndrome : nd.array
-    #         The syndrome of the error.
-    #     posterior : nd.array
-    #         The posterior probabilities of each error mechanism.
-    #     certainties : nd.array
-    #         The likelihoods of each error mechanism for ordering, default None constructs certainties from posterior.
-    #     order : int
-    #         The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
-    #     debug : bool
-    #         Whether to return debug information (error, success, pre_proccessing_success, posterior), default is False.
-
-    #     Returns
-    #     -------
-    #     error : nd.array
-    #         The predicted error mechanism.
-    #     bool
-    #         Whether the decoding was successful.
-    #     """
-    #     if not isinstance(field, int) or field < 2:
-    #         raise ValueError("field must be an integer greater than 1")
-    #     if not isinstance(h_eff, np.ndarray):
-    #         raise TypeError("h_eff must be a numpy array")
-    #     if not isinstance(syndrome, np.ndarray):
-    #         raise TypeError("syndrome must be a numpy array")
-    #     if not isinstance(order, int) or order < 0:
-    #         raise ValueError("order must be a non-negative integer")
-    #     if not isinstance(posterior, np.ndarray):
-    #         raise TypeError("posterior must be a numpy array")
-    #     if not (isinstance(certainties, np.ndarray) or certainties is None):
-    #         raise TypeError("certainties must be a numpy array or None")
-
-    #     if certainties is None:
-    #         certainties = np.delete(posterior, 0, axis=1)
-    #         # more complicated for qudits???
-
-    #     n_detectors, n_errors = h_eff.shape
-    #     GF = galois.GF(field)
-
-    #     ####################################################################################
-    #     # For qubits, do normal OSD (need to be careful with error powers for qudits *help*)
-    #     ####################################################################################
-
-    #     # Step 1: order the errors by likelihood
-    #     permutation, inv_permutation = _find_permutation(certainties)
-    #     h_eff = h_eff[:, permutation]
-    #     posterior = posterior[
-    #         permutation, :
-    #     ]  # potentially want sth more complicated for qudits???
-
-    #     # Step 2: decompose h_eff into rank(h_eff) linearly independent columns (P) and the remainder (B) using rref
-    #     P, B, rank, pivot_cols, non_pivot_cols, h_rref, syndrome_rref = _decompose(
-    #         field, h_eff, syndrome
-    #     )
-
-    #     # Step 3: solve (wrt order) for the error mechanism with highest likelihood
-    #     if order == 0:
-    #         error, score = _rank_errors(
-    #             GF.Zeros(n_errors - rank),
-    #             field,
-    #             n_errors,
-    #             rank,
-    #             h_rref,
-    #             syndrome_rref,
-    #             B,
-    #             P,
-    #             posterior,
-    #             pivot_cols,
-    #             non_pivot_cols,
-    #         )
-    #         error = error[inv_permutation]
-    #     else:
-    #         raise NotImplementedError("OSD with order > 0 is not implemented yet.")
-
-    #     # Invert permutation
-    #     h_eff = h_eff[:, inv_permutation]
-    #     posterior = posterior[inv_permutation, :]
-
-    #     assert ((h_eff @ error) % field == syndrome).all()
-
-    #     if debug:
-    #         return error, True, False, posterior
-    #     else:
-    #         return error, True
-
 
     def decode(self, syndrome: np.ndarray[int], debug: bool = False) -> tuple[np.ndarray, bool]:
         """
@@ -556,18 +400,22 @@ class OSD(Decoder):
             # WARNING: Lose information here in the qudit case???
             self.certainties = np.sum(self.posterior[:, 1:], axis=1)
 
-        n_errors = self.h.shape[1]
+        n_detectors, n_errors = self.h.shape
 
         # Step 1: order the errors by likelihood
         permutation, inv_permutation = self._find_permutation(self.certainties)
         self.h = self.h[:, permutation]
+        if self.order:
+            self.posterior = self.posterior[permutation, :]
 
-        # Step 2: decompose h_eff into rank(h_eff) linearly independent columns and rows (P)
+        # Step 2: decompose h_eff into rank(h_eff) linearly independent columns and rows (P) and the remainder (B)
         h_rref, syndrome_rref, pivot_cols, pivot_rows, pivots = self.field.rref(self.h, syndrome)
-        P = self.h[:, pivot_cols][pivot_rows, :]
+        if self.order:
+            P = h_rref[:, pivot_cols]  # P is square identity matrix
+            B = h_rref[:, [i for i in range(n_errors) if i not in pivot_cols]]
 
         # Step 3: solve (wrt order) for the error mechanism with highest likelihood
-        if self.order == 0:
+        if not self.order:
             # Solve linear system P * short_error = syndrome (from rref) -> h_eff * error = syndrome with 0s to extend short_error
             error = np.zeros(n_errors, dtype=int)
             ind = [pivot_rows.index(i) for i in sorted(pivot_rows)]
@@ -576,11 +424,42 @@ class OSD(Decoder):
             assert ((self.h @ error) % self.field.p == syndrome).all()
 
             error = error[inv_permutation]
-        else:
-            raise NotImplementedError("OSD with order > 0 is not implemented yet.")
+        elif self.order:
+            winning_error, winning_score = np.zeros(n_errors, dtype=int), -np.inf
+
+            # All possible combos of error mechanisms on non-pivot columns of size 'order'
+            dim = B.shape[1]
+            guess = np.zeros(dim, dtype=int)
+            ind = [pivot_rows.index(i) for i in sorted(pivot_rows)]
+            self.power_like = self.power_like[permutation, :]
+            self.power_like = self.power_like[P.shape[1]:, :]
+            guesses = self.order_mask * self.power_like[:, self.power - 1]  # only works for order = 1 or power = 1, o/w need to do lin combos
+            for guess in guesses:
+                # Solve linear system P * short_error = syndrome - B * guess
+                error = np.zeros(n_errors, dtype=int)
+                remainder = (syndrome_rref - B @ guess) % self.field.p
+                error[np.array(pivot_cols)[ind]] = remainder
+                error[[i for i in range(n_errors) if i not in pivot_cols]] = guess
+
+                assert ((self.h @ error) % self.field.p == syndrome).all()
+
+                # Score the guess
+                score = 0
+                for i, err in enumerate(error):
+                    post = self.posterior[i, err]
+                    if post > 0:
+                        score += np.log(post)
+                    else:
+                        score -= 1000
+                if score > winning_score:
+                    winning_error, winning_score = error[inv_permutation], score
+            error = winning_error
+
 
         # Invert permutation
         self.h = self.h[:, inv_permutation]
+        if self.order:
+            self.posterior = self.posterior[inv_permutation, :]
 
         assert ((self.h @ error) % self.field.p == syndrome).all()
 
