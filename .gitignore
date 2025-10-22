@@ -173,7 +173,7 @@ cython_debug/
 
 # ignore at merge
 
-notebooks
+
 benchtimo.py
 results_23-05-2025_16-19.json
 results.txt
