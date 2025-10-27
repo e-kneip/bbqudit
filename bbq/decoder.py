@@ -318,7 +318,7 @@ class BP(Decoder):
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
 
-    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], posterior: np.ndarray[float], certainties: np.ndarray[float] | None = None, order: int = 0, power: int = 1):
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], posterior: np.ndarray[float], certainties: np.ndarray[float] | None = None, order: int = 0, power: int = 1, norder: np.ndarray[int] = 0):
         """
         Initialise an ordered statistics decoder.
         
@@ -332,6 +332,8 @@ class OSD(Decoder):
             The order of the OSD algorithm, i.e. the number of dependent error mechanisms to consider. Default is 0.
         power : int
             The number of most likely error powers to consider for each error mechanism. Default is 1.
+        norder : nd.array[int]
+            Precomputed norder masks to use for the given order, default 0 computes them internally.
         """
         if not order >= 0:
             raise ValueError("order must be a non-negative integer")
@@ -347,13 +349,16 @@ class OSD(Decoder):
         self.power = power
 
         if order:
-            _, _, pivot_cols, pivot_rows, _ = self.field.rref(self.h, np.zeros(self.h.shape[0], dtype=int))
-            rank = min(len(pivot_cols), len(pivot_rows))  # could also do n - k = m = 2*rank, or store the output of rref for later
-            dim = self.h.shape[1] - rank
-            if order == 1:
-                self.order_mask = self._order_one(dim)
+            if np.any(norder == 1):
+                self.order_mask = norder
             else:
-                self.order_mask = norder(dim, self.order)
+                _, _, pivot_cols, pivot_rows, _ = self.field.rref(self.h, np.zeros(self.h.shape[0], dtype=int))
+                rank = min(len(pivot_cols), len(pivot_rows))  # could also do n - k = m = 2*rank, or store the output of rref for later
+                dim = self.h.shape[1] - rank
+                if order == 1:
+                    self.order_mask = self._order_one(dim)
+                else:
+                    self.order_mask = norder(dim, self.order)
             self.power_like = self._power()
     
     def _order_one(self, dim):
