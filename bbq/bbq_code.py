@@ -70,8 +70,8 @@ class BivariateBicycle:
             % self.field.p
         )
         self.A, self.B = self._monomials()
-        self.qubits_dict, self.data_qubits, self.x_checks, self.z_checks = (
-            self._qubits()
+        self.qudits_dict, self.data_qudits, self.x_checks, self.z_checks = (
+            self._qudits()
         )
         self.edges = self._edges()
         self.name = name
@@ -114,35 +114,35 @@ class BivariateBicycle:
             B.append(poly(l, m))
         return A, B
 
-    def _qubits(self):
-        """Give names to each qubit and store in a dictionary: (qubit_type, qubit_type_number) : qubit_index"""
+    def _qudits(self):
+        """Give names to each qudit and store in a dictionary: (qudit_type, qudit_type_number) : qudit_index"""
         l, m = self.l, self.m
-        qubits_dict = {}
-        data_qubits, x_checks, z_checks = [], [], []
+        qudits_dict = {}
+        data_qudits, x_checks, z_checks = [], [], []
         for i in range(l * m):
             # X checks
             node_name = ("x_check", i)
             x_checks.append(node_name)
-            qubits_dict[node_name] = i
+            qudits_dict[node_name] = i
 
-            # Left data qubits
+            # Left data qudits
             node_name = ("data_left", i)
-            data_qubits.append(node_name)
-            qubits_dict[node_name] = l * m + i
+            data_qudits.append(node_name)
+            qudits_dict[node_name] = l * m + i
 
-            # Right data qubits
+            # Right data qudits
             node_name = ("data_right", i)
-            data_qubits.append(node_name)
-            qubits_dict[node_name] = 2 * l * m + i
+            data_qudits.append(node_name)
+            qudits_dict[node_name] = 2 * l * m + i
 
             # Z checks
             node_name = ("z_check", i)
             z_checks.append(node_name)
-            qubits_dict[node_name] = 3 * l * m + i
-        return qubits_dict, data_qubits, x_checks, z_checks
+            qudits_dict[node_name] = 3 * l * m + i
+        return qudits_dict, data_qudits, x_checks, z_checks
 
     def _edges(self):
-        """Set up edges connecting data and measurement qubits in a dictionary: ((check_qubit_type, check_type_number), monomial_index/direction) : (qubit_type, qubit_number)"""
+        """Set up edges connecting data and measurement qudits in a dictionary: ((check_qudit_type, check_type_number), monomial_index/direction) : (qudit_type, qudit_number)"""
         l, m = self.l, self.m
         q = self.q
         field = self.field
@@ -151,25 +151,25 @@ class BivariateBicycle:
         for i in range(l * m):
             # X checks
             check_name = ("x_check", i)
-            # Left data qubits
+            # Left data qudits
             for j in range(len(A)):
                 y = int(np.nonzero(A[j][i, :])[0][0])
                 edges[(check_name, j)] = (("data_left", y), int(A[j][i, y]))
-            # Right data qubits
+            # Right data qudits
             for j in range(len(B)):
                 y = int(np.nonzero(B[j][i, :])[0][0])
                 edges[(check_name, len(A) + j)] = (("data_right", y), int(B[j][i, y]))
 
             # Z checks
             check_name = ("z_check", i)
-            # Left data qubits
+            # Left data qudits
             for j in range(len(B)):
                 y = int(np.nonzero(B[j][:, i])[0][0])
                 edges[(check_name, j)] = (
                     ("data_left", y),
                     (q * int(B[j][y, i])) % field.p,
                 )
-            # Right data qubits
+            # Right data qudits
             for j in range(len(A)):
                 y = int(np.nonzero(A[j][:, i])[0][0])
                 edges[(check_name, len(A) + j)] = (
@@ -237,11 +237,11 @@ class BivariateBicycle:
         state : nd.array
             Final state, 0 indicates no error, 1 indicates error.
         syndrome_map : dict
-            Dictionary of {x_check qubit : list of positions in syndrome_history where qubit has been measured}.
+            Dictionary of {x_check qudit : list of positions in syndrome_history where qudit has been measured}.
         err_cnt : int
             Number of errors.
         """
-        qubits_dict = self.qubits_dict
+        qudits_dict = self.qudits_dict
         field = self.field
         n = 2 * self.l * self.m
 
@@ -251,20 +251,20 @@ class BivariateBicycle:
         for gate in circ:
             if gate[0] == "CNOT":
                 # IZ -> ZZ^-1, ZI -> Z^-1I
-                control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                control, target = qudits_dict[gate[1]], qudits_dict[gate[2]]
                 power = gate[3]
                 state[control] = (state[control] - power * state[target]) % field.p
                 continue
             if gate[0] == "Prep_X":
                 # Reset error to 0
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = 0
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = 0
                 continue
             if gate[0] == "Meas_X":
                 # Add measurement result to syndrome history
                 assert gate[1][0] == "x_check"
-                qubit = qubits_dict[gate[1]]
-                syndrome_history.append(state[qubit])
+                qudit = qudits_dict[gate[1]]
+                syndrome_history.append(state[qudit])
                 if gate[1] in syndrome_map:
                     syndrome_map[gate[1]].append(syn_cnt)
                 else:
@@ -272,29 +272,29 @@ class BivariateBicycle:
                 syn_cnt += 1
                 continue
             if gate[0] in ["Z", "Y"]:
-                # Qubit gains a Z error
+                # qudit gains a Z error
                 err_cnt += 1
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["ZX", "YX"]:
-                # 1st qubit gains a Z error
+                # 1st qudit gains a Z error
                 err_cnt += 1
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["XZ", "XY"]:
-                # 2nd qubit gains a Z error
+                # 2nd qudit gains a Z error
                 err_cnt += 1
-                qubit = qubits_dict[gate[2]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[2]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["ZZ", "YY", "ZY", "YZ"]:
-                # Both qubits gain a Z error
+                # Both qudits gain a Z error
                 err_cnt += 1
-                qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
-                state[qubit1] = (state[qubit1] + 1) % field.p
-                state[qubit2] = (state[qubit2] + 1) % field.p
+                qudit1, qudit2 = qudits_dict[gate[1]], qudits_dict[gate[2]]
+                state[qudit1] = (state[qudit1] + 1) % field.p
+                state[qudit2] = (state[qudit2] + 1) % field.p
                 continue
         return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt
 
@@ -313,11 +313,11 @@ class BivariateBicycle:
         state : nd.array
             Final state, 0 indicates no error, 1 indicates error.
         syndrome_map : dict
-            Dictionary of {z_check qubit : list of positions in syndrome_history where qubit has been measured}.
+            Dictionary of {z_check qudit : list of positions in syndrome_history where qudit has been measured}.
         err_cnt : int
             Number of errors.
         """
-        qubits_dict = self.qubits_dict
+        qudits_dict = self.qudits_dict
         field = self.field
         n = 2 * self.l * self.m
 
@@ -327,20 +327,20 @@ class BivariateBicycle:
         for gate in circ:
             if gate[0] == "CNOT":
                 # XI -> XX, IX -> IX
-                control, target = qubits_dict[gate[1]], qubits_dict[gate[2]]
+                control, target = qudits_dict[gate[1]], qudits_dict[gate[2]]
                 power = gate[3]
                 state[target] = (state[target] + power * state[control]) % field.p
                 continue
             if gate[0] == "Prep_Z":
                 # Reset error to 0
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = 0
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = 0
                 continue
             if gate[0] == "Meas_Z":
                 # Add measurement result to syndrome history
                 assert gate[1][0] == "z_check"
-                qubit = qubits_dict[gate[1]]
-                syndrome_history.append(state[qubit])
+                qudit = qudits_dict[gate[1]]
+                syndrome_history.append(state[qudit])
                 if gate[1] in syndrome_map:
                     syndrome_map[gate[1]].append(syn_cnt)
                 else:
@@ -348,29 +348,29 @@ class BivariateBicycle:
                 syn_cnt += 1
                 continue
             if gate[0] in ["X", "Y"]:
-                # Qubit gains an X error
+                # qudit gains an X error
                 err_cnt += 1
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["XZ", "YZ"]:
-                # 1st qubit gains an X error
+                # 1st qudit gains an X error
                 err_cnt += 1
-                qubit = qubits_dict[gate[1]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[1]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["ZX", "ZY"]:
-                # 2nd qubit gains an X error
+                # 2nd qudit gains an X error
                 err_cnt += 1
-                qubit = qubits_dict[gate[2]]
-                state[qubit] = (state[qubit] + 1) % field.p
+                qudit = qudits_dict[gate[2]]
+                state[qudit] = (state[qudit] + 1) % field.p
                 continue
             if gate[0] in ["XX", "YY", "YX", "XY"]:
-                # Both qubits gain an X error
+                # Both qudits gain an X error
                 err_cnt += 1
-                qubit1, qubit2 = qubits_dict[gate[1]], qubits_dict[gate[2]]
-                state[qubit1] = (state[qubit1] + 1) % field.p
-                state[qubit2] = (state[qubit2] + 1) % field.p
+                qudit1, qudit2 = qudits_dict[gate[1]], qudits_dict[gate[2]]
+                state[qudit1] = (state[qudit1] + 1) % field.p
+                state[qudit2] = (state[qudit2] + 1) % field.p
                 continue
         return np.array(syndrome_history, dtype=int), state, syndrome_map, err_cnt
 
@@ -778,172 +778,6 @@ class BivariateBicycle:
             lines, handles, loc="upper left", bbox_to_anchor=(1, 1), handlelength=2.4
         )
 
-    def construct_sm_circuit(self, x_order: list, z_order: list) -> list:
-        """Construct one cycle of the syndrome measurement circuit for the Bivariate Bicycle code.
-
-        Parameters
-        ----------
-        x_order : list
-            List of integers or 'Idle' defining the order of the CNOTs for x stabilisers.
-        y_order : list
-            List of integers or 'Idle' defining the order of the CNOTs for y stabilisers.
-
-        Returns
-        -------
-        circ : list
-            List of gates in one cycle of the syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
-        """
-        if not isinstance(x_order, list):
-            raise TypeError("x_order must be a list")
-        if not isinstance(z_order, list):
-            raise TypeError("y_order must be a list")
-        for gate in x_order:
-            if not (isinstance(gate, int) or gate == "Idle"):
-                raise TypeError("x_order must be an array of integers or 'Idle'")
-        for gate in z_order:
-            if not (isinstance(gate, int) or gate == "Idle"):
-                raise TypeError("z_order must be an array of integers or 'Idle'")
-        if not x_order[0] == "Idle":
-            raise ValueError("First x_order round must be 'Idle'")
-        if not z_order[-1] == "Idle":
-            raise ValueError("Last y_order round must be 'Idle'")
-        for i in range(len(np.nonzero(self.hx[0])[0])):
-            if i not in x_order:
-                raise ValueError("x_order must contain all target qubits")
-        for i in range(len(np.nonzero(self.hz[0])[0])):
-            if i not in z_order:
-                raise ValueError("y_order must contain all target qubits")
-        if len(x_order) > len(z_order):
-            z_order += ["Idle"] * (len(x_order) - len(z_order))
-        elif len(z_order) > len(x_order):
-            x_order += ["Idle"] * (len(z_order) - len(x_order))
-
-        hx, hz = self.hx, self.hz
-        a, b = self.a, self.b
-        l, m, q = self.l, self.m, self.q
-        field = self.field
-        A, B = self.A, self.B
-        qubits_dict, data_qubits, x_checks, z_checks = (
-            self.qubits_dict,
-            self.data_qubits,
-            self.x_checks,
-            self.z_checks,
-        )
-        edges = self.edges
-
-        # Construct the circuit
-        circ = []
-        U = np.identity(4 * l * m, dtype=int)  # to verify CNOT order
-
-        # For each time step, add the corresponding gate:
-        # ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Y', qubit), ('Prep_X', qubit)
-
-        # Round 0: Prepare X checks, CNOT/Idle Z checks
-        t = 0
-        cnoted_data_qubits = []
-        for qubit in x_checks:
-            circ.append(("Prep_X", qubit))
-        if z_order[t] == "Idle":
-            for qubit in z_checks:
-                circ.append(("Idle", qubit))
-        else:
-            for target in z_checks:
-                direction = z_order[t]
-                control, power = edges[(target, direction)]
-                U[qubits_dict[target], :] = (
-                    U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                ) % field.p
-                cnoted_data_qubits.append(control)
-                circ.append(("CNOT", control, target, power))
-        for qubit in data_qubits:
-            if not (qubit in cnoted_data_qubits):
-                circ.append(("Idle", qubit))
-
-        # Round [1, (max-1)]: CNOT/Idle X checks, CNOT/Idle Z checks
-        for t in range(1, len(x_order) - 1):
-            cnoted_data_qubits = []
-            if x_order[t] == "Idle":
-                for qubit in x_checks:
-                    circ.append(("Idle", qubit))
-            else:
-                for control in x_checks:
-                    direction = x_order[t]
-                    target, power = edges[(control, direction)]
-                    U[qubits_dict[target], :] = (
-                        U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                    ) % field.p
-                    cnoted_data_qubits.append(target)
-                    circ.append(("CNOT", control, target, power))
-            if z_order[t] == "Idle":
-                for qubit in z_checks:
-                    circ.append(("Idle", qubit))
-            else:
-                for target in z_checks:
-                    direction = z_order[t]
-                    control, power = edges[(target, direction)]
-                    U[qubits_dict[target], :] = (
-                        U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                    ) % field.p
-                    cnoted_data_qubits.append(control)
-                    circ.append(("CNOT", control, target, power))
-            for qubit in data_qubits:
-                if not (qubit in cnoted_data_qubits):
-                    circ.append(("Idle", qubit))
-
-        # Round max: CNOT/Idle X checks, Measure Z checks
-        t = -1
-        cnoted_data_qubits = []
-        if x_order[t] == "Idle":
-            for qubit in x_checks:
-                circ.append(("Idle", qubit))
-        else:
-            for control in x_checks:
-                direction = x_order[t]
-                target, power = edges[(control, direction)]
-                U[qubits_dict[target], :] = (
-                    U[qubits_dict[target], :] + power * U[qubits_dict[control], :]
-                ) % field.p
-                circ.append(("CNOT", control, target, power))
-                cnoted_data_qubits.append(target)
-        for qubit in z_checks:
-            circ.append(("Meas_Z", qubit))
-        for qubit in data_qubits:
-            if not (qubit in cnoted_data_qubits):
-                circ.append(("Idle", qubit))
-
-        # Round final: Measure X checks, Prepare Z checks
-        for qubit in data_qubits:
-            circ.append(("Idle", qubit))
-        for qubit in x_checks:
-            circ.append(("Meas_X", qubit))
-        for qubit in z_checks:
-            circ.append(("Prep_Z", qubit))
-
-        # Test measurement circuit against max depth circuit
-        V = np.identity(4 * l * m, dtype=int)
-        for t in range(len(x_order)):
-            if not x_order[t] == "Idle":
-                for control in x_checks:
-                    direction = x_order[t]
-                    target, power = edges[(control, direction)]
-                    V[qubits_dict[target], :] = (
-                        V[qubits_dict[target], :] + power * V[qubits_dict[control], :]
-                    ) % field.p
-        for t in range(len(z_order)):
-            if not z_order[t] == "Idle":
-                for target in z_checks:
-                    direction = z_order[t]
-                    control, power = edges[(target, direction)]
-                    V[qubits_dict[target], :] = (
-                        V[qubits_dict[target], :] + power * V[qubits_dict[control], :]
-                    ) % field.p
-        if not np.array_equal(U, V):
-            raise ValueError(
-                "Syndrome circuit does not match max depth syndrome circuit, check stabiliser orders"
-            )
-
-        return circ
-
     def construct_decoding_matrix(
         self, circ: list, error_rates: dict, num_cycles: int = 1
     ) -> np.ndarray:
@@ -952,7 +786,7 @@ class BivariateBicycle:
         Parameters
         ----------
         circ : list
-            List of gates in one cycle of the syndrome circuit: ('CNOT', control_qubit, target_qubit, power), ('Idle', qubit), ('Meas_X', qubit), ('Meas_Z', qubit), ('Prep_X', qubit), ('Prep_Z', qubit).
+            List of gates in one cycle of the syndrome circuit: ('CNOT', control_qudit, target_qudit, power), ('Idle', qudit), ('Meas_X', qudit), ('Meas_Z', qudit), ('Prep_X', qudit), ('Prep_Z', qudit).
         error_rate : dict
             Dictionary of error rates for keys [Meas, Prep, Idle, CNOT].
         num_cycles : int
@@ -987,7 +821,7 @@ class BivariateBicycle:
 
         l, m = self.l, self.m
         field = self.field
-        qubits_dict, data_qubits = self.qubits_dict, self.data_qubits
+        qudits_dict, data_qudits = self.qudits_dict, self.data_qudits
         x_logicals, z_logicals = self.x_logicals, self.z_logicals
         x_checks, z_checks = self.x_checks, self.z_checks
 
@@ -1062,12 +896,12 @@ class BivariateBicycle:
             assert err_cnt == 1
             assert len(syndrome_history) == l * m * (num_cycles + 2)
 
-            # Compute final state of data qubits and logical effect
-            state_data_qubits = [
-                state[qubits_dict[qubit]] for qubit in data_qubits
+            # Compute final state of data qudits and logical effect
+            state_data_qudits = [
+                state[qudits_dict[qudit]] for qudit in data_qudits
             ]  # 1 indicates X error
             syndrome_final_logical = (
-                np.array(z_logicals) @ state_data_qubits
+                np.array(z_logicals) @ state_data_qudits
             ) % field.p  # Check if X error flips logical Z outcome
 
             # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
@@ -1094,7 +928,7 @@ class BivariateBicycle:
 
         first_logical_row_x = l * m * (num_cycles + 2)
         num_x_errors = len(Hx_dict)  # Number of distinct X syndrome histories
-        k = len(x_logicals)  # Number of logical qubits
+        k = len(x_logicals)  # Number of logical qudits
         hx_eff, short_hx_eff = [], []
         channel_prob_x = []
         for supp in Hx_dict:
@@ -1127,10 +961,10 @@ class BivariateBicycle:
             assert err_cnt == 1
             assert len(syndrome_history) == l * m * (num_cycles + 2)
 
-            # Compute final state of data qubits and logical effect
-            state_data_qubits = [state[qubits_dict[qubit]] for qubit in data_qubits]
+            # Compute final state of data qudits and logical effect
+            state_data_qudits = [state[qudits_dict[qudit]] for qudit in data_qudits]
             syndrome_final_logical = (
-                np.array(x_logicals) @ state_data_qubits
+                np.array(x_logicals) @ state_data_qudits
             ) % field.p
 
             # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
