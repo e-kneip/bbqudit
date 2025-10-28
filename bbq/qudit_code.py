@@ -61,6 +61,7 @@ class QuditCode:
 
     def _compute_distance(self):
         """Return distances dx, dz and d of the code."""
+        # Rough upper bound from weight of logicals
         if self.distance is False:
             self.dx = min(
                 len(np.nonzero(self.x_logicals[i])[0])
@@ -71,13 +72,18 @@ class QuditCode:
                 for i in range(len(self.z_logicals))
             )
             self.d = min(self.dx, self.dz)
+
+        # Tighter bound from BP distance
         elif self.distance is True:
             self.dx, self.dz = (
                 bp_distance(self.field, self.hx, self.x_logicals),
                 bp_distance(self.field, self.hz, self.z_logicals),
             )
             self.d = min(self.dx, self.dz)
+
+        # Preset distances
         else:
             self.dx, self.dz = self.distance
             self.d = min(self.dx, self.dz)
+
         return self.dx, self.dz, self.d
