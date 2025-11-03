@@ -13,25 +13,25 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
     code : BivariateBicycle
         The Bivariate Bicycle code to simulate.
     x_order : list
-        List of integers or 'Idle' defining the order of the CNOTs for x stabilisers.
+        List of integers or 'idle' defining the order of the CNOTs for x stabilisers.
     y_order : list
-        List of integers or 'Idle' defining the order of the CNOTs for y stabilisers.
+        List of integers or 'idle' defining the order of the CNOTs for y stabilisers.
 
     Returns
     -------
     circ : list
-        List of gates in one cycle of the syndrome circuit: ('CNOT', control_qudit, target_qudit, power), ('Idle', qudit), ('Meas_X', qudit), ('Meas_Z', qudit), ('Prep_X', qudit), ('Prep_Z', qudit).
+        List of gates in one cycle of the syndrome circuit: ('CNOT', control_qudit, target_qudit, power), ('idle', qudit), ('MeasX', qudit), ('MeasZ', qudit), ('PrepX', qudit), ('PrepZ', qudit).
     """
     for gate in x_order:
-        if not (isinstance(gate, int) or gate == "Idle"):
-            raise TypeError("x_order must be an array of integers or 'Idle'")
+        if not (isinstance(gate, int) or gate == "idle"):
+            raise TypeError("x_order must be an array of integers or 'idle'")
     for gate in z_order:
-        if not (isinstance(gate, int) or gate == "Idle"):
-            raise TypeError("z_order must be an array of integers or 'Idle'")
-    if not x_order[0] == "Idle":
-        raise ValueError("First x_order round must be 'Idle'")
-    if not z_order[-1] == "Idle":
-        raise ValueError("Last z_order round must be 'Idle'")
+        if not (isinstance(gate, int) or gate == "idle"):
+            raise TypeError("z_order must be an array of integers or 'idle'")
+    if not x_order[0] == "idle":
+        raise ValueError("First x_order round must be 'idle'")
+    if not z_order[-1] == "idle":
+        raise ValueError("Last z_order round must be 'idle'")
 
     for i in range(len(np.nonzero(code.hx[0])[0])):
         if i not in x_order:
@@ -41,17 +41,17 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
             raise ValueError("z_order must contain all target qudits")
 
     if len(x_order) > len(z_order):
-        z_order += ["Idle"] * (len(x_order) - len(z_order))
+        z_order += ["idle"] * (len(x_order) - len(z_order))
     elif len(z_order) > len(x_order):
-        x_order += ["Idle"] * (len(z_order) - len(x_order))
+        x_order += ["idle"] * (len(z_order) - len(x_order))
 
     l, m = code.l, code.m
     field = code.field
-    qudits_dict, data_qudits, x_checks, z_checks = (
+    qudits_dict, data_qudits, Xchecks, Zchecks = (
         code.qudits_dict,
         code.data_qudits,
-        code.x_checks,
-        code.z_checks,
+        code.Xchecks,
+        code.Zchecks,
     )
     edges = code.edges
 
@@ -60,18 +60,18 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
     U = np.identity(4 * l * m, dtype=int)  # to verify CNOT order
 
     # For each time step, add the corresponding gate:
-    # ('CNOT', control_qudit, target_qudit, power), ('Idle', qudit), ('Meas_X', qudit), ('Meas_Z', qudit), ('Prep_X', qudit), ('Prep_Z', qudit)
+    # ('CNOT', control_qudit, target_qudit, power), ('idle', qudit), ('MeasX', qudit), ('MeasZ', qudit), ('PrepX', qudit), ('PrepZ', qudit)
 
-    # Round 0: Prepare X checks, CNOT/Idle Z checks
+    # Round 0: Prepare X checks, CNOT/idle Z checks
     t = 0
     cnoted_data_qudits = []
-    for qudit in x_checks:
-        circ.append(("Prep_X", qudit))
-    if z_order[t] == "Idle":
-        for qudit in z_checks:
-            circ.append(("Idle", qudit))
+    for qudit in Xchecks:
+        circ.append(("PrepX", qudit))
+    if z_order[t] == "idle":
+        for qudit in Zchecks:
+            circ.append(("IDLE", qudit))
     else:
-        for target in z_checks:
+        for target in Zchecks:
             direction = z_order[t]
             control, power = edges[(target, direction)]
             U[qudits_dict[target], :] = (
@@ -81,16 +81,16 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
             circ.append(("CNOT", control, target, power))
     for qudit in data_qudits:
         if not (qudit in cnoted_data_qudits):
-            circ.append(("Idle", qudit))
+            circ.append(("IDLE", qudit))
 
-    # Round [1, (max-1)]: CNOT/Idle X checks, CNOT/Idle Z checks
+    # Round [1, (max-1)]: CNOT/idle X checks, CNOT/idle Z checks
     for t in range(1, len(x_order) - 1):
         cnoted_data_qudits = []
-        if x_order[t] == "Idle":
-            for qudit in x_checks:
-                circ.append(("Idle", qudit))
+        if x_order[t] == "idle":
+            for qudit in Xchecks:
+                circ.append(("IDLE", qudit))
         else:
-            for control in x_checks:
+            for control in Xchecks:
                 direction = x_order[t]
                 target, power = edges[(control, direction)]
                 U[qudits_dict[target], :] = (
@@ -98,11 +98,11 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
                 ) % field.p
                 cnoted_data_qudits.append(target)
                 circ.append(("CNOT", control, target, power))
-        if z_order[t] == "Idle":
-            for qudit in z_checks:
-                circ.append(("Idle", qudit))
+        if z_order[t] == "idle":
+            for qudit in Zchecks:
+                circ.append(("IDLE", qudit))
         else:
-            for target in z_checks:
+            for target in Zchecks:
                 direction = z_order[t]
                 control, power = edges[(target, direction)]
                 U[qudits_dict[target], :] = (
@@ -112,16 +112,18 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
                 circ.append(("CNOT", control, target, power))
         for qudit in data_qudits:
             if not (qudit in cnoted_data_qudits):
-                circ.append(("Idle", qudit))
+                circ.append(("IDLE", qudit))
 
-    # Round max: CNOT/Idle X checks, Measure Z checks
+    # Round max: CNOT/idle X checks, Measure Z checks
     t = -1
     cnoted_data_qudits = []
-    if x_order[t] == "Idle":
-        for qudit in x_checks:
-            circ.append(("Idle", qudit))
+    for qudit in Zchecks:
+        circ.append(("MeasZ", qudit))
+    if x_order[t] == "idle":
+        for qudit in Xchecks:
+            circ.append(("IDLE", qudit))
     else:
-        for control in x_checks:
+        for control in Xchecks:
             direction = x_order[t]
             target, power = edges[(control, direction)]
             U[qudits_dict[target], :] = (
@@ -129,33 +131,31 @@ def construct_sm_circuit(code: BivariateBicycle, x_order: list[int | str], z_ord
             ) % field.p
             circ.append(("CNOT", control, target, power))
             cnoted_data_qudits.append(target)
-    for qudit in z_checks:
-        circ.append(("Meas_Z", qudit))
     for qudit in data_qudits:
         if not (qudit in cnoted_data_qudits):
-            circ.append(("Idle", qudit))
+            circ.append(("IDLE", qudit))
 
     # Round final: Measure X checks, Prepare Z checks
     for qudit in data_qudits:
-        circ.append(("Idle", qudit))
-    for qudit in x_checks:
-        circ.append(("Meas_X", qudit))
-    for qudit in z_checks:
-        circ.append(("Prep_Z", qudit))
+        circ.append(("IDLE", qudit))
+    for qudit in Xchecks:
+        circ.append(("MeasX", qudit))
+    for qudit in Zchecks:
+        circ.append(("PrepZ", qudit))
 
     # Test measurement circuit against max depth circuit
     V = np.identity(4 * l * m, dtype=int)
     for t in range(len(x_order)):
-        if not x_order[t] == "Idle":
-            for control in x_checks:
+        if not x_order[t] == "idle":
+            for control in Xchecks:
                 direction = x_order[t]
                 target, power = edges[(control, direction)]
                 V[qudits_dict[target], :] = (
                     V[qudits_dict[target], :] + power * V[qudits_dict[control], :]
                 ) % field.p
     for t in range(len(z_order)):
-        if not z_order[t] == "Idle":
-            for target in z_checks:
+        if not z_order[t] == "idle":
+            for target in Zchecks:
                 direction = z_order[t]
                 control, power = edges[(target, direction)]
                 V[qudits_dict[target], :] = (
@@ -177,7 +177,7 @@ def generate_single_error_circuits(repeated_circ: list[tuple], error_rates: dict
     repeated_circ : list[tuple]
         List of gates in the repeated syndrome circuit.
     error_rates : dict[str, float]
-        Dictionary of error rates for keys [Meas, Prep, Idle, CNOT].
+        Dictionary of error rates for keys [Meas, Prep, idle, CNOT].
     
     Returns
     -------
@@ -199,33 +199,33 @@ def generate_single_error_circuits(repeated_circ: list[tuple], error_rates: dict
     tail = repeated_circ.copy()
 
     for gate in repeated_circ:
-        if gate[0] == "Meas_X":
-            # Meas_X error only affects Z detectors
+        if gate[0] == "MeasX":
+            # MeasX error only affects Z detectors
             z_circuit.append(head + [("Z", gate[1])] + tail)
             z_prob.append(error_rates["Meas"])
-        if gate[0] == "Meas_Z":
-            # Meas_Z error only affects X detectors
+        if gate[0] == "MeasZ":
+            # MeasZ error only affects X detectors
             x_circuit.append(head + [("X", gate[1])] + tail)
             x_prob.append(error_rates["Meas"])
         head.append(gate)
         tail.pop(0)
-        if gate[0] == "Prep_X":
-            # Prep_X error only affects Z detectors
+        if gate[0] == "PrepX":
+            # PrepX error only affects Z detectors
             z_circuit.append(head + [("Z", gate[1])] + tail)
             z_prob.append(error_rates["Prep"])
-        if gate[0] == "Prep_Z":
-            # Prep_Z error only affects X detectors
+        if gate[0] == "PrepZ":
+            # PrepZ error only affects X detectors
             x_circuit.append(head + [("X", gate[1])] + tail)
             x_prob.append(error_rates["Prep"])
-        if gate[0] == "Idle":
-            # Idle error on Z detectors
+        if gate[0] == "IDLE":
+            # idle error on Z detectors
             z_circuit.append(head + [("Z", gate[1])] + tail)
             z_prob.append(
-                error_rates["Idle"] * 2 / 3
-            )  # 3 possible Idle errors are X, Y, Z so Z is 2/3 (Y and Z)
-            # Idle error on X detectors
+                error_rates["idle"] * 2 / 3
+            )  # 3 possible idle errors are X, Y, Z so Z is 2/3 (Y and Z)
+            # idle error on X detectors
             x_circuit.append(head + [("X", gate[1])] + tail)
-            x_prob.append(error_rates["Idle"] * 2 / 3)
+            x_prob.append(error_rates["idle"] * 2 / 3)
         if gate[0] == "CNOT":
             # Z error on control
             z_circuit.append(head + [("Z", gate[1])] + tail)
@@ -266,7 +266,7 @@ def simulate_z_circuit(code: BivariateBicycle, circ: list):
     state : nd.array
         Final state, 0 indicates no error, 1 indicates error.
     syndrome_map : dict
-        Dictionary of {x_check qudit : list of positions in syndrome_history where qudit has been measured}.
+        Dictionary of {Xcheck qudit : list of positions in syndrome_history where qudit has been measured}.
     err_cnt : int
         Number of errors.
     """
@@ -284,14 +284,14 @@ def simulate_z_circuit(code: BivariateBicycle, circ: list):
             power = gate[3]
             state[control] = (state[control] - power * state[target]) % field.p
             continue
-        if gate[0] == "Prep_X":
+        if gate[0] == "PrepX":
             # Reset error to 0
             qudit = qudits_dict[gate[1]]
             state[qudit] = 0
             continue
-        if gate[0] == "Meas_X":
+        if gate[0] == "MeasX":
             # Add measurement result to syndrome history
-            assert gate[1][0] == "x_check"
+            assert gate[1][0] == "Xcheck"
             qudit = qudits_dict[gate[1]]
             syndrome_history.append(state[qudit])
             if gate[1] in syndrome_map:
@@ -344,7 +344,7 @@ def simulate_x_circuit(code: BivariateBicycle, circ: list):
     state : nd.array
         Final state, 0 indicates no error, 1 indicates error.
     syndrome_map : dict
-        Dictionary of {z_check qudit : list of positions in syndrome_history where qudit has been measured}.
+        Dictionary of {Zcheck qudit : list of positions in syndrome_history where qudit has been measured}.
     err_cnt : int
         Number of errors.
     """
@@ -362,14 +362,14 @@ def simulate_x_circuit(code: BivariateBicycle, circ: list):
             power = gate[3]
             state[target] = (state[target] + power * state[control]) % field.p
             continue
-        if gate[0] == "Prep_Z":
+        if gate[0] == "PrepZ":
             # Reset error to 0
             qudit = qudits_dict[gate[1]]
             state[qudit] = 0
             continue
-        if gate[0] == "Meas_Z":
+        if gate[0] == "MeasZ":
             # Add measurement result to syndrome history
-            assert gate[1][0] == "z_check"
+            assert gate[1][0] == "Zcheck"
             qudit = qudits_dict[gate[1]]
             syndrome_history.append(state[qudit])
             if gate[1] in syndrome_map:
@@ -446,7 +446,7 @@ def build_hx_dict(code: BivariateBicycle, x_circuit: list[tuple], circ: list[tup
 
         # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
         syndrome_history_copy = syndrome_history.copy()
-        for check in code.z_checks:
+        for check in code.Zchecks:
             pos = syndrome_map[check]
             assert len(pos) == num_cycles + 2
             for row in range(1, num_cycles + 2):
@@ -506,7 +506,7 @@ def build_hz_dict(code: BivariateBicycle, z_circuit: list[tuple], circ: list[tup
 
         # Syndrome sparsification, i.e. only keep syndrome entries that change from previous cycle
         syndrome_history_copy = syndrome_history.copy()
-        for check in code.x_checks:
+        for check in code.Xchecks:
             pos = syndrome_map[check]
             assert len(pos) == num_cycles + 2
             for row in range(1, num_cycles + 2):
@@ -634,10 +634,9 @@ def construct_decoding_matrix(
     code : BivariateBicycle
         The Bivariate Bicycle code to simulate.
     circ : list[tuple]
-        List of gates in one cycle of the syndrome circuit: ('CNOT', control_qudit, target_qudit, power), ('Idle', qudit), ('Meas_X', qudit), ('Meas_Z', qudit), ('Prep_X', qudit), ('Prep_Z', qudit).
+        List of gates in one cycle of the syndrome circuit: ('CNOT', control_qudit, target_qudit, power), ('idle', qudit), ('MeasX', qudit), ('MeasZ', qudit), ('PrepX', qudit), ('PrepZ', qudit).
     error_rate : dict[str, float]
-        Dictionary of error rates for keys [Meas, Prep, Idle, CNOT].
-        Dictionary of error rates for keys [Meas, Prep, Idle, CNOT].
+        Dictionary of error rates for keys [Meas, Prep, idle, CNOT].
     num_cycles : int
         Number of cycles to repeat the syndrome circuit. Default is 1.
 
@@ -657,9 +656,9 @@ def construct_decoding_matrix(
         List of probabilities for each Z syndrome, i.e. each column in hz_eff.
     """
     for key in error_rates.keys():
-        if (key not in ["Meas", "Prep", "Idle", "CNOT"]) or (len(error_rates) != 4):
+        if (key not in ["Meas", "Prep", "idle", "CNOT"]) or (len(error_rates) != 4):
             raise ValueError(
-                "error_rates must have keys ['Meas', 'Prep', 'Idle', 'CNOT']"
+                "error_rates must have keys ['Meas', 'Prep', 'idle', 'CNOT']"
             )
         if not 0 <= error_rates[key] <= 1:
             raise ValueError("error_rates must have values between 0 and 1")
@@ -697,7 +696,7 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
     circ : list[tuple]
         List of gates in the circuit.
     error_rates : dict[str, float]
-        Dictionary with error rates with keys ['Meas', 'Prep', 'Idle', 'CNOT'].
+        Dictionary with error rates with keys ['Meas', 'Prep', 'idle', 'CNOT'].
 
     Returns
     -------
@@ -712,14 +711,14 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
     for gate in circ:
         assert gate[0] in [
             "CNOT",
-            "Prep_X",
-            "Prep_Z",
-            "Meas_X",
-            "Meas_Z",
-            "Idle",
+            "PrepX",
+            "PrepZ",
+            "MeasX",
+            "MeasZ",
+            "IDLE",
         ], "Invalid gate type."
-        if gate[0] == "Meas_X":
-            # Meas_X error only affects Z stabilisers
+        if gate[0] == "MeasX":
+            # MeasX error only affects Z stabilisers
             if np.random.uniform() <= error_rates["Meas"]:
                 # Random Z^k error for k = 1, 2, ..., field.p-1
                 power = np.random.randint(field.p - 1)
@@ -727,8 +726,8 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
                 err_cnt += 1
             noisy_circ.append(gate)
             continue
-        if gate[0] == "Meas_Z":
-            # Meas_Z error only affects X stabilisers
+        if gate[0] == "MeasZ":
+            # MeasZ error only affects X stabilisers
             if np.random.uniform() <= error_rates["Meas"]:
                 # Random X^k error for k = 1, 2, ..., field.p-1
                 power = np.random.randint(field.p - 1)
@@ -736,8 +735,8 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
                 err_cnt += 1
             noisy_circ.append(gate)
             continue
-        if gate[0] == "Prep_X":
-            # Prep_X error only affects Z stabilisers
+        if gate[0] == "PrepX":
+            # PrepX error only affects Z stabilisers
             noisy_circ.append(gate)
             if np.random.uniform() <= error_rates["Prep"]:
                 # Random Z^k error for k = 1, 2, ..., field.p-1
@@ -745,8 +744,8 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
                 noisy_circ += [("Z", gate[1])] * (power + 1)
                 err_cnt += 1
             continue
-        if gate[0] == "Prep_Z":
-            # Prep_Z error only affects X stabilisers
+        if gate[0] == "PrepZ":
+            # PrepZ error only affects X stabilisers
             noisy_circ.append(gate)
             if np.random.uniform() <= error_rates["Prep"]:
                 # Random X^k error for k = 1, 2, ..., field.p-1
@@ -754,9 +753,9 @@ def generate_noisy_circuit(code: BivariateBicycle, circ: list[tuple], error_rate
                 noisy_circ += [("X", gate[1])] * (power + 1)
                 err_cnt += 1
             continue
-        if gate[0] == "Idle":
-            # Idle error can be X^k, Y^k or Z^k
-            if np.random.uniform() <= error_rates["Idle"]:
+        if gate[0] == "IDLE":
+            # idle error can be X^k, Y^k or Z^k
+            if np.random.uniform() <= error_rates["idle"]:
                 ptype = np.random.randint(3)
                 if ptype == 0:
                     power = np.random.randint(field.p - 1)

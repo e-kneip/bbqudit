@@ -70,7 +70,7 @@ class BivariateBicycle:
             % self.field.p
         )
         self.A, self.B = self._monomials()
-        self.qudits_dict, self.data_qudits, self.x_checks, self.z_checks = (
+        self.qudits_dict, self.data_qudits, self.Xchecks, self.Zchecks = (
             self._qudits()
         )
         self.edges = self._edges()
@@ -118,28 +118,31 @@ class BivariateBicycle:
         """Give names to each qudit and store in a dictionary: (qudit_type, qudit_type_number) : qudit_index"""
         l, m = self.l, self.m
         qudits_dict = {}
-        data_qudits, x_checks, z_checks = [], [], []
+        data_qudits, Xchecks, Zchecks = [], [], []
         for i in range(l * m):
             # X checks
-            node_name = ("x_check", i)
-            x_checks.append(node_name)
+            node_name = ("Xcheck", i)
+            Xchecks.append(node_name)
             qudits_dict[node_name] = i
 
+        for i in range(l * m):
             # Left data qudits
             node_name = ("data_left", i)
             data_qudits.append(node_name)
             qudits_dict[node_name] = l * m + i
 
+        for i in range(l * m):
             # Right data qudits
             node_name = ("data_right", i)
             data_qudits.append(node_name)
             qudits_dict[node_name] = 2 * l * m + i
 
+        for i in range(l * m):
             # Z checks
-            node_name = ("z_check", i)
-            z_checks.append(node_name)
+            node_name = ("Zcheck", i)
+            Zchecks.append(node_name)
             qudits_dict[node_name] = 3 * l * m + i
-        return qudits_dict, data_qudits, x_checks, z_checks
+        return qudits_dict, data_qudits, Xchecks, Zchecks
 
     def _edges(self):
         """Set up edges connecting data and measurement qudits in a dictionary: ((check_qudit_type, check_type_number), monomial_index/direction) : (qudit_type, qudit_number)"""
@@ -150,7 +153,7 @@ class BivariateBicycle:
         edges = {}
         for i in range(l * m):
             # X checks
-            check_name = ("x_check", i)
+            check_name = ("Xcheck", i)
             # Left data qudits
             for j in range(len(A)):
                 y = int(np.nonzero(A[j][i, :])[0][0])
@@ -160,8 +163,9 @@ class BivariateBicycle:
                 y = int(np.nonzero(B[j][i, :])[0][0])
                 edges[(check_name, len(A) + j)] = (("data_right", y), int(B[j][i, y]))
 
+        for i in range(l * m):
             # Z checks
-            check_name = ("z_check", i)
+            check_name = ("Zcheck", i)
             # Left data qudits
             for j in range(len(B)):
                 y = int(np.nonzero(B[j][:, i])[0][0])
@@ -187,29 +191,29 @@ class BivariateBicycle:
         GF = galois.GF(field.p)
         Hx_gal, Hz_gal = GF(hx), GF(hz)
         x_logicals, z_logicals = [], []
-        x_check, z_check = Hx_gal, Hz_gal
+        Xcheck, Zcheck = Hx_gal, Hz_gal
 
         # X logicals must be in the kernel of Hz and not the image of Hx^T
         ker_hz = Hz_gal.null_space()
         rank = np.linalg.matrix_rank(Hx_gal)
         for vec in ker_hz:
-            x_check = GF(np.vstack((x_check, vec)))
-            if np.linalg.matrix_rank(x_check) > rank:
+            Xcheck = GF(np.vstack((Xcheck, vec)))
+            if np.linalg.matrix_rank(Xcheck) > rank:
                 x_logicals.append(vec)
                 rank += 1
             else:
-                np.delete(x_check, -1, axis=0)
+                np.delete(Xcheck, -1, axis=0)
 
         # Z logicals must be in the kernel of Hx and not the image of Hz^T
         ker_hx = Hx_gal.null_space()
         rank = np.linalg.matrix_rank(Hz_gal)
         for vec in ker_hx:
-            z_check = GF(np.vstack((z_check, vec)))
-            if np.linalg.matrix_rank(z_check) > rank:
+            Zcheck = GF(np.vstack((Zcheck, vec)))
+            if np.linalg.matrix_rank(Zcheck) > rank:
                 z_logicals.append(vec)
                 rank += 1
             else:
-                np.delete(z_check, -1, axis=0)
+                np.delete(Zcheck, -1, axis=0)
 
         # Check correct number of logicals found: k = n - m
         assert len(x_logicals) == len(z_logicals)
