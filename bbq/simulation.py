@@ -218,19 +218,20 @@ def process_results(
         The error bars from the data, i.e. {code : [error_bar]}.
     """
 
+    res = results.copy()
     if noise_model == "circuit_level":
         if rounds is None:
             raise ValueError("rounds must be provided for circuit_level noise model")
-        for d in results:
-            results[d] = np.array(results[d]) * rounds[d]
+        for d in res:
+            res[d] = np.array(res[d]) * rounds[d]
 
     plot_results = {}
     plot_error_bars = {}
 
-    for d in results:
-        plot_results[d] = num_failures[d] / np.array(results[d])
+    for d in res:
+        plot_results[d] = num_failures[d] / np.array(res[d])
         plot_error_bars[d] = np.sqrt(
-            (plot_results[d]) * (1 - plot_results[d]) / results[d]
+            (plot_results[d]) * (1 - plot_results[d]) / res[d]
         )
 
     return plot_results, plot_error_bars
