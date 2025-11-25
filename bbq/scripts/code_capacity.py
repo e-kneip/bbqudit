@@ -13,13 +13,13 @@ print('--------------------------------')
 
 print('Setting up hx, lx...')
 # Define parity check matrix, hx, and its logicals, lx, for the 3x3 qubit toric code
-field = Field(2)
+field = Field(5)
 x, y = Monomial(field, 'x'), Monomial(field, 'y')
-a, b = 1 + x, 1 + y
+a, b = 1 - x, 1 - y
 bb = BivariateBicycle(a, b, 3, 3, 1)
 hx, lx = bb.hx, bb.x_logicals
 n_qudits = hx.shape[1]
-code_name = '3x3 Qubit Toric Code'
+code_name = '3x3 Qutrit Toric Code testing...'
 
 # Define decoder parameters for BP+OSD
 max_iter = 300
@@ -27,7 +27,7 @@ order = 0
 
 # Define simulation parameters (which physical error rates to test, how many failures to observe before stopping)
 physical_error = np.logspace(-0.7, -1.7, 5)
-num_failures = 3
+num_failures = 10
 results = []
 
 # Saving data

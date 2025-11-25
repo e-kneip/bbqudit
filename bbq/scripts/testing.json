@@ -1,0 +1,24 @@
+{
+    "qec_code_name": "3x3 Qutrit Toric Code testing...",
+    "noise_model": "code_capacity",
+    "num_failures": 10,
+    "error_rates": [
+        0.19952623149688797,
+        0.11220184543019636,
+        0.06309573444801933,
+        0.03548133892335755,
+        0.0199526231496888
+    ],
+    "results": [
+        17,
+        55,
+        141,
+        627,
+        1809
+    ],
+    "current_round": {
+        "error_rate": 0.0199526231496888,
+        "num_trials": 1809,
+        "failures": 10
+    }
+}
