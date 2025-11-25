@@ -30,8 +30,8 @@ class Decoder(ABC):
             raise ValueError(
                 "error_channel must have the same number of rows as there are error mechanisms, i.e. columns of h, and same number of columns as the field size."
             )
-        if not np.all(0 <= error_channel) & np.all(error_channel <= 1) & (np.isclose(np.sum(error_channel), 1) | np.all(np.isclose(np.sum(error_channel, axis=1), 1))):  # TODO: not sure when first of or statements happens...
-            raise ValueError("error_channel must be filled with probabilities, which sum to 1")
+        # if not np.all(0 <= error_channel) & np.all(error_channel <= 1) & (np.isclose(np.sum(error_channel), 1) | np.all(np.isclose(np.sum(error_channel, axis=1), 1))):  # TODO: not sure when first of or statements happens...
+        #     raise ValueError("error_channel must be filled with probabilities, which sum to 1")
         field._validate(h)
 
         self.field = field
@@ -210,8 +210,18 @@ class BP(Decoder):
             convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
 
             # Compute the product of the probabilities for the error messages, excluding one row of messages to avoid feedback
-            sub_convolutions = np.prod(convolution, axis=0)
-            sub_convolutions = sub_convolutions / convolution
+            conv_i = np.where(convolution == 0)[0]  # todo: should be using isclose??
+
+            if len(conv_i) == 0:
+                sub_convolutions = np.prod(convolution, axis=0)
+                sub_convolutions = sub_convolutions / convolution
+            else:  # Not sure if this ever happens (tried a few 1000 trials), but if there ever is a 0 in conolution, will need this!
+                sub_convolutions = np.empty_like(convolution)
+                mask = np.ones_like(convolution, dtype=bool)
+                for j in range(convolution.shape[0]):
+                    mask[j] = False
+                    sub_convolutions[j] = np.prod(convolution, axis=0, where=mask)
+                    mask[j] = True
 
             # Inverse Fourier transform the product to find the subset convolution
             sub_convolution = np.fft.ifft(sub_convolutions, axis=1).real
@@ -232,8 +242,19 @@ class BP(Decoder):
             # Isolate the relevant check messages
             posterior = P[dets[:, 0], i, :]
 
-            sub_posteriors = np.prod(posterior, axis=0) * self.prior[i, :]
-            sub_posteriors = sub_posteriors / posterior
+            # Prevent /0 in parallelisation
+            post_i = np.where(posterior == 0)[0]  # todo: should be using isclose??
+
+            if len(post_i) == 0:
+                sub_posteriors = np.prod(posterior, axis=0) * self.prior[i, :]
+                sub_posteriors = sub_posteriors / posterior
+            else:
+                sub_posteriors = np.empty_like(posterior)
+                mask = np.ones_like(posterior, dtype=bool)
+                for j in range(posterior.shape[0]):
+                    mask[j] = False
+                    sub_posteriors[j] = np.prod(posterior, axis=0, where=mask) * self.prior[j, :]
+                    mask[j] = True
 
             # Pass normalised messages
             Q[i, dets[:, 0], :] = (
@@ -243,7 +264,8 @@ class BP(Decoder):
 
     def _calculate_posterior(self, P):
         """Calculate the posterior probabilities and make hard decision on error."""
-        posteriors = np.zeros_like(self.prior)
+         # For errors which do not flag any detectors, use original prior
+        posteriors = self.prior.copy()
 
         errs = list(self.err_neighbourhood.keys())
         posteriors[errs, :] = (
@@ -251,10 +273,11 @@ class BP(Decoder):
             * self.prior[errs, :]
         )
 
-        for i, dets in self.err_neighbourhood.items():
-            # TODO: Vectorize this:
-            posterior = np.prod(P[dets[:, 0], i, :], axis=0) * self.prior[i, :]
-            posteriors[i, :] = posterior
+        # I think this is the same as above??? Is one of them faster??? Why did I keep both?!
+        # for i, dets in self.err_neighbourhood.items():
+        #     # TODO: Vectorize this:
+        #     posterior = np.prod(P[dets[:, 0], i, :], axis=0) * self.prior[i, :]
+        #     posteriors[i, :] = posterior
 
         posteriors /= (
             np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
@@ -295,9 +318,14 @@ class BP(Decoder):
         P, Q = self.P.copy(), self.Q.copy()
 
         for _ in range(self.max_iter):
+            Pi, Pj, Pk = np.where(P == np.inf)
+
             # Pass messages
             self._check_to_error_message(syndrome, P, Q)
             self._error_to_check_message(P, Q)
+            # TODO: should be doing err to check and check to err in one iter not the other way around!
+
+            P[Pi, Pj, Pk] = np.inf * np.ones_like(P[Pi, Pj, Pk])
 
             # Calculate posterior and make hard decision on errors
             error, posteriors = self._calculate_posterior(P)
