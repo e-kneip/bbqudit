@@ -459,7 +459,7 @@ def build_hx_dict(code: BivariateBicycle, x_circuit: list[tuple], circ: list[tup
             pos = syndrome_map[check]
             assert len(pos) == num_cycles + 2
             for row in range(1, num_cycles + 2):
-                syndrome_history[pos[row]] += syndrome_history_copy[pos[row - 1]]
+                syndrome_history[pos[row]] -= syndrome_history_copy[pos[row - 1]]
         syndrome_history %= code.field.p
 
         # Combine syndrome_history and syndrome_final_logical
@@ -467,12 +467,19 @@ def build_hx_dict(code: BivariateBicycle, x_circuit: list[tuple], circ: list[tup
             [syndrome_history, syndrome_final_logical]
         )
 
-        # Hx_dict maps flagged Z stabilisers to corresponding noisy circuit, i.e. Hx_dict[flagged_z_stab] = [noisy_circuit_1, noisy_circuit_2, ...]
+        # Hx_dict maps flagged Z stabilisers to corresponding noisy circuit, i.e. Hx_dict[(flagged_z_stab, power)] = [noisy_circuit_1, noisy_circuit_2, ...]
         supp = tuple(np.nonzero(syndrome_history_augmented)[0])
-        if supp in hx_dict:
-            hx_dict[supp].append(cnt)
+
+        key = []
+        for loc in supp:
+            key.append((int(loc), int(syndrome_history_augmented[loc])))
+        key = tuple(key)
+
+        if key in hx_dict:
+            hx_dict[key].append(cnt)
         else:
-            hx_dict[supp] = [cnt]
+            hx_dict[key] = [cnt]
+
         cnt += 1
     return hx_dict
 
@@ -518,7 +525,7 @@ def build_hz_dict(code: BivariateBicycle, z_circuit: list[tuple], circ: list[tup
             pos = syndrome_map[check]
             assert len(pos) == num_cycles + 2
             for row in range(1, num_cycles + 2):
-                syndrome_history[pos[row]] += syndrome_history_copy[pos[row - 1]]
+                syndrome_history[pos[row]] -= syndrome_history_copy[pos[row - 1]]
         syndrome_history %= code.field.p
 
         # Combine syndrome_history and syndrome_final_logical
@@ -526,12 +533,19 @@ def build_hz_dict(code: BivariateBicycle, z_circuit: list[tuple], circ: list[tup
             [syndrome_history, syndrome_final_logical]
         )
 
-        # Hz_dict maps flagged X stabilisers to corresponding noisy circuit, i.e. Hz_dict[flagged_x_stab] = [noisy_circuit_1, noisy_circuit_2, ...]
+        # Hz_dict maps flagged X stabilisers to corresponding noisy circuit, i.e. Hz_dict[(flagged_x_stab, power)] = [noisy_circuit_1, noisy_circuit_2, ...]
         supp = tuple(np.nonzero(syndrome_history_augmented)[0])
-        if supp in Hz_dict:
-            Hz_dict[supp].append(cnt)
+
+        key = []
+        for loc in supp:
+            key.append((int(loc), int(syndrome_history_augmented[loc])))
+        key = tuple(key)
+
+        if key in Hz_dict:
+            Hz_dict[key].append(cnt)
         else:
-            Hz_dict[supp] = [cnt]
+            Hz_dict[key] = [cnt]
+
         cnt += 1
     return Hz_dict
 
@@ -564,12 +578,15 @@ def build_hx_eff(code: BivariateBicycle, hx_dict: dict[tuple[int], list[int]], x
     hx_eff, short_hx_eff = [], []
     channel_prob_x = []
     for supp in hx_dict:
-        new_col = np.zeros(
-            (code.l * code.m * (num_cycles + 2) + k, 1), dtype=int
-        )  # With the augmented part for logicals
+        # Set up columns, with augmented part for logicals
+        new_col = np.zeros((code.l * code.m * (num_cycles + 2) + k, 1), dtype=int)
         new_col_short = np.zeros((code.l * code.m * (num_cycles + 2), 1), dtype=int)
-        new_col[list(supp), 0] = 1  # 1 indicates which stabiliser is flagged
+
+        # Flag correct detectors
+        for loc, power in supp:
+            new_col[loc] = power
         new_col_short[:, 0] = new_col[0:first_logical_row_x, 0]
+
         hx_eff.append(coo_matrix(new_col))
         short_hx_eff.append(coo_matrix(new_col_short))
         channel_prob_x.append(
@@ -613,12 +630,15 @@ def build_hz_eff(code: BivariateBicycle, Hz_dict: dict[tuple[int], list[int]], z
     hz_eff, short_hz_eff = [], []
     channel_prob_z = []
     for supp in Hz_dict:
-        new_col = np.zeros(
-            (code.l * code.m * (num_cycles + 2) + k, 1), dtype=int
-        )  # With the augmented part for logicals
+        # Set up columns, with augmented part for logicals
+        new_col = np.zeros((code.l * code.m * (num_cycles + 2) + k, 1), dtype=int)
         new_col_short = np.zeros((code.l * code.m * (num_cycles + 2), 1), dtype=int)
-        new_col[list(supp), 0] = 1  # 1 indicates which stabiliser is flagged
+
+        # Flag correct detectors
+        for loc, power in supp:
+            new_col[loc] = power
         new_col_short[:, 0] = new_col[0:first_logical_row_z, 0]
+
         hz_eff.append(coo_matrix(new_col))
         short_hz_eff.append(coo_matrix(new_col_short))
         channel_prob_z.append(
