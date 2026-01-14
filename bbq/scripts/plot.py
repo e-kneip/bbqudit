@@ -4,16 +4,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load data
-filenames = ["3x3_toric.json", "5x5_toric.json", "7x7_toric.json"]
+filenames = ["3x3_ququint_toric.json", "5x5_ququint_toric.json", "7x7_ququint_toric.json"]
 legend = []
 noise_model = "code_capacity"
 rounds = None
 num_failures = {}
 results = {}
 ext_results = {}
-title = "3x3 Qubit Toric Code"
+title = "Ququint Toric"
 
-colour_theme = ["lightcoral", "lightseagreen", "royalblue"]
+colour_theme = ["slateblue", "lightseagreen", "hotpink"]
 inset_dim: list[float] = [0.54, 0.14, 0.4, 0.4]
 inset_ticks: list[float] = [0.1, 0.12, 0.14, 0.16]
 
@@ -42,9 +42,8 @@ for i, code in enumerate(results):
     mask = np.array(results[code]) != np.inf
 
     (lines[code],) = ax.loglog(
-        physical_error[mask], res[mask], color=colour_theme[i], label=code
+        physical_error[mask], res[mask], color=colour_theme[i], label=code, marker=(3+i, 0, 0)
     )
-    ax.loglog(physical_error[mask], res[mask], ".", color=colour_theme[i])
     ax.fill_between(
         physical_error[mask],
         res[mask] - err[mask],
