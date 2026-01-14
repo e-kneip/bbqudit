@@ -200,14 +200,14 @@ class BP(Decoder):
             syn_inv_permutation = self._syn_inv_permute_field(syndrome[i])
 
             # Permute elements in Q according to stabiliser powers
-            Q_perm = Q.copy()
-            Q_perm[errs[:, 0], i, :] = np.take_along_axis(
-                Q_perm[errs[:, 0], i, :], self.permutation[errs[:, 1], :], axis=1
+            Q_perm = Q[errs[:, 0], i, :].copy()
+            Q_perm = np.take_along_axis(
+                Q_perm, self.permutation[errs[:, 1], :], axis=1
             )
             # Q_perm = self.rearange_Q(Q_perm, errs, i, permutation) (NOTE: older code, is about the same speed as the above line but maybe slower for larger simulations?)
 
             # Fourier transform the relevant error messages
-            convolution = np.fft.fft(Q_perm[errs[:, 0], i, :], axis=1)
+            convolution = np.fft.fft(Q_perm, axis=1)
 
             # Compute the product of the probabilities for the error messages, excluding one row of messages to avoid feedback
             conv_i = np.where(convolution == 0)[0]  # todo: should be using isclose??
@@ -295,7 +295,7 @@ class BP(Decoder):
         return error, posteriors
 
 
-    def decode(self, syndrome: np.ndarray, debug: bool = False) -> tuple[np.ndarray[int], bool]:
+    def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
         """Decode the syndrome using belief propagation.
 
         Parameters
@@ -304,6 +304,8 @@ class BP(Decoder):
             The syndrome of the error.
         debug : bool
             Whether to return debug information (error, success, bp_success, posteriors), default is False. Use if post-processing results.
+        metric : bool
+            Whether to return posteriors calculated at each iteration.
 
         Returns
         -------
@@ -314,29 +316,36 @@ class BP(Decoder):
         """
         if not isinstance(syndrome, np.ndarray):
             raise TypeError("syndrome must be a numpy array")
-
-        P, Q = self.P.copy(), self.Q.copy()
+        if metric:
+            posterior_track = [self.prior.tolist()]
 
         for _ in range(self.max_iter):
-            Pi, Pj, Pk = np.where(P == np.inf)
+            Pi, Pj, Pk = np.where(self.P == np.inf)
 
             # Pass messages
-            self._check_to_error_message(syndrome, P, Q)
-            self._error_to_check_message(P, Q)
+            self._check_to_error_message(syndrome, self.P, self.Q)
+            self._error_to_check_message(self.P, self.Q)
             # TODO: should be doing err to check and check to err in one iter not the other way around!
 
-            P[Pi, Pj, Pk] = np.inf * np.ones_like(P[Pi, Pj, Pk])
+            self.P[Pi, Pj, Pk] = np.inf * np.ones_like(self.P[Pi, Pj, Pk])
 
             # Calculate posterior and make hard decision on errors
-            error, posteriors = self._calculate_posterior(P)
+            error, posteriors = self._calculate_posterior(self.P)
+
+            if metric:
+                posterior_track.append(posteriors.tolist())
 
             # Check convergence
             if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, True, posteriors, posterior_track
                 if debug:
                     return error, True, True, posteriors
                 else:
                     return error, True
 
+        if metric:
+            return error, False, False, posteriors, posterior_track
         if debug:
             return error, False, False, posteriors
         else:
@@ -564,7 +573,7 @@ class BPOSD(Decoder):
         self.order = order
 
 
-    def decode(self, syndrome: np.ndarray[int], debug: bool = False) -> tuple[np.ndarray, bool]:
+    def decode(self, syndrome: np.ndarray[int], debug: bool = False, metric: bool = False) -> tuple[np.ndarray, bool]:  # TODO: do I wanna keep metric? and if so currently should have metric OR debug enabled and metric is kinda a superset of debug so can be cleaner!
         """
         Decode the syndrome using BP+OSD (Belief Propagation and Ordered Statistics Decoder).
 
@@ -574,6 +583,8 @@ class BPOSD(Decoder):
             The syndrome of the error.
         debug : bool
             Whether to return debug information (error, success, bp_success, posteriors), default is False.
+        metric : bool
+            Whether to return the posteriors calculated at each oteration of BP.
 
         Returns
         -------
@@ -584,18 +595,27 @@ class BPOSD(Decoder):
         """
         bp = BP(self.field, self.h, self.error_channel, self.max_iter)
 
-        error, success, bp_success, posterior = bp.decode(syndrome, debug=True)
-        if success:
-            if debug:
-                return error, success, bp_success, posterior
-            else:
-                return error, success
+        if metric:
+            error, success, bp_success, posterior, posterior_track = bp.decode(syndrome, metric=True)
+            if success:
+                return error, success, bp_success, posterior_track
+        else:
+            error, success, bp_success, posterior = bp.decode(syndrome, debug=True)
+            if success:
+                if debug:
+                    return error, success, bp_success, posterior
+                else:
+                    return error, success
 
         # Use sum of all likelihoods of X^k/Z^k errors on a  given qudit to rank h_eff columns
         # WARNING: Lose information here in the qudit case???
-        certainties = np.sum(np.delete(posterior, 0, axis=1), axis=1)
+        certainties = np.max(np.delete(posterior, 0, axis=1), axis=1)
         osd = OSD(self.field, self.h, self.error_channel, posterior, certainties, self.order)
-        return osd.decode(syndrome, debug)
+        if metric:
+            error, success = osd.decode(syndrome)
+            return error, success, False, posterior_track
+        else:
+            return osd.decode(syndrome, debug)
 
 
 # TODO: Generate prior in advance in simulation, to be used in all shots
