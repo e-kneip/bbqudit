@@ -14,7 +14,7 @@ print('Setting up hx, lx...')
 # Define parity check matrix, hx, and its logicals, lx, for the 3x3 qubit toric code
 field = Field(2)
 x, y = Monomial(field, 'x'), Monomial(field, 'y')
-a, b = 1 + x, 1 + y
+a, b = x - 1, y - 1
 bb = BivariateBicycle(a, b, 3, 3, 1)
 hx, lx = bb.hx, bb.x_logicals
 hz, lz = bb.hz, bb.z_logicals
@@ -22,12 +22,12 @@ n_qudits = hx.shape[1]
 code_name = '3x3 Qubit Toric Code'
 
 # Define noise model parameters
-x_order = ['Idle', 0, 3, 1, 2]
-z_order = [0, 3, 1, 2, 'Idle']
+x_order = ['idle', 0, 3, 1, 2]
+z_order = [0, 3, 1, 2, 'idle']
 
 p = 0.01
 num_cycles = 2
-error_rates = {'Meas': p, 'Prep': p, 'Idle': p, 'CNOT': p}
+error_rates = {'Meas': p, 'Prep': p, 'idle': p, 'CNOT': p}
 
 print('Setting up circuit level decoding matrix...')
 # Construct syndrome measurement circuit
@@ -55,7 +55,7 @@ x_syndrome_final_logical = (np.array(lz) @ x_state_data_qudits) % field.p
 print(f'True final logical X error: {x_syndrome_final_logical}')
 
 # Syndrome sparsification
-z_checks = bb.z_checks
+z_checks = bb.Zchecks
 x_syndrome_history_copy = x_syndrome_history.copy()
 for check in z_checks:
     pos = x_syndrome_map[check]
