@@ -352,6 +352,85 @@ class BP(Decoder):
             return error, False
 
 
+class BPM(BP):
+    """Decoder using averages to cut BP symmetry."""
+
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, reset: int = 12):
+        super().__init__(field, h, error_channel, max_iter)
+        self.reset = reset
+
+    def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
+        if not isinstance(syndrome, np.ndarray):
+            raise TypeError("syndrome must be a numpy array")
+        if metric:
+            posterior_track = [self.prior.tolist()]
+
+        mean = np.zeros((self.prior.shape[0], self.prior.shape[1], self.reset), dtype=float)
+
+        for it in range(self.max_iter):
+            Pi, Pj, Pk = np.where(self.P == np.inf)
+
+            # Pass messages
+            self._check_to_error_message(syndrome, self.P, self.Q)
+            self._error_to_check_message(self.P, self.Q)
+            # TODO: should be doing err to check and check to err in one iter not the other way around!
+
+            self.P[Pi, Pj, Pk] = np.inf * np.ones_like(self.P[Pi, Pj, Pk])
+
+            # Calculate posterior and make hard decision on errors
+            error, posteriors = self._calculate_posterior(self.P)
+
+            if metric:
+                posterior_track.append(posteriors.tolist())
+
+            # Check convergence
+            if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, True, posteriors, posterior_track
+                if debug:
+                    return error, True, True, posteriors
+                else:
+                    return error, True
+                
+            # Update most recent posteriors
+            mean[:, :, it % self.reset] = posteriors
+
+            # Every reset iterations reset posterior of one error mechanism to average
+            if it % self.reset == 0:
+                # Find error mechanism with largest oscillations
+                arg = np.argmax(np.ptp(mean, axis=2))
+                arg //= self.field.p
+
+                # Reset the posterior for arg and send to its neighbouring detectors
+                av = np.average(mean, axis=2)
+            self.Q[arg, self.err_neighbourhood[arg][:, 0], :] = av[arg, :]
+
+            # Take average, chack convergence and send to OSD
+            av_posteriors = np.average(mean, axis=2)
+
+            max_lik = np.argmax(av_posteriors, axis=1)
+            error = np.array(
+                [
+                    max_lik[i] if av_posteriors[i, max_lik[i]] >= 1 else 0
+                    for i in range(av_posteriors.shape[0])
+                ]
+            )
+            if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, True, av_posteriors, posterior_track
+                if debug:
+                    return error, True, True, av_posteriors
+                else:
+                    return error, True
+
+        if metric:
+            return error, False, False, av_posteriors, posterior_track
+        if debug:
+            return error, False, False, av_posteriors
+        else:
+            return error, False
+
+
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
 
@@ -617,6 +696,54 @@ class BPOSD(Decoder):
         else:
             return osd.decode(syndrome, debug)
 
+class BPMOSD(BPOSD):
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, order: int = 0, reset: int = 12):
+        super().__init__(field, h, error_channel, max_iter, order)
+        self.reset = reset
+
+    def decode(self, syndrome: np.ndarray[int], debug: bool = False, metric: bool = False) -> tuple[np.ndarray, bool]:  # TODO: do I wanna keep metric? and if so currently should have metric OR debug enabled and metric is kinda a superset of debug so can be cleaner!
+        """
+        Decode the syndrome using BP+OSD (Belief Propagation and Ordered Statistics Decoder).
+
+        Parameters
+        ----------
+        syndrome : nd.array
+            The syndrome of the error.
+        debug : bool
+            Whether to return debug information (error, success, bp_success, posteriors), default is False.
+        metric : bool
+            Whether to return the posteriors calculated at each oteration of BP.
+
+        Returns
+        -------
+        error : nd.array
+            The predicted error mechanism.
+        bool
+            Whether the decoding was successful.
+        """
+        bpm = BPM(self.field, self.h, self.error_channel, self.max_iter, self.reset)
+
+        if metric:
+            error, success, bp_success, posterior, posterior_track = bpm.decode(syndrome, metric=True)
+            if success:
+                return error, success, bp_success, posterior_track
+        else:
+            error, success, bp_success, posterior = bpm.decode(syndrome, debug=True)
+            if success:
+                if debug:
+                    return error, success, bp_success, posterior
+                else:
+                    return error, success
+
+        # Use sum of all likelihoods of X^k/Z^k errors on a  given qudit to rank h_eff columns
+        # WARNING: Lose information here in the qudit case???
+        certainties = np.max(np.delete(posterior, 0, axis=1), axis=1)
+        osd = OSD(self.field, self.h, self.error_channel, posterior, certainties, self.order)
+        if metric:
+            error, success = osd.decode(syndrome)
+            return error, success, False, posterior_track
+        else:
+            return osd.decode(syndrome, debug)
 
 # TODO: Generate prior in advance in simulation, to be used in all shots
 
