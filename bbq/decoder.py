@@ -5,6 +5,8 @@ from bbq.field import Field
 
 from abc import ABC, abstractmethod
 from numba import njit
+from ldpc.bplsd_decoder import BpLsdDecoder
+from ldpc.bposd_decoder import BpOsdDecoder
 import numpy as np
 
 
@@ -279,18 +281,29 @@ class BP(Decoder):
         #     posterior = np.prod(P[dets[:, 0], i, :], axis=0) * self.prior[i, :]
         #     posteriors[i, :] = posterior
 
-        posteriors /= (
-            np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
-        )  ####### do I have blowing up problems here??? yes, yes you do...
-
-        max_lik = np.argmax(posteriors, axis=1)
-        # if 50:50 chance between 2 errors, max_lik will pick the 1st in row (lower power)
+        # Using probabilities
+        posteriors /= np.sum(posteriors, axis=1)[:, np.newaxis]
+        max_prob = np.argmax(posteriors, axis=1)
         error = np.array(
             [
-                max_lik[i] if posteriors[i, max_lik[i]] >= 1 else 0
+                max_prob[i] if posteriors[i, max_prob[i]] >= 0.5 else 0
                 for i in range(posteriors.shape[0])
             ]
         )
+
+        # Using likelihoods
+        # posteriors /= (
+        #     np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
+        # )  ####### do I have blowing up problems here??? yes, yes you do...
+
+        # max_lik = np.argmax(posteriors, axis=1)
+        # # if 50:50 chance between 2 errors, max_lik will pick the 1st in row (lower power)
+        # error = np.array(
+        #     [
+        #         max_lik[i] if posteriors[i, max_lik[i]] >= 1 else 0
+        #         for i in range(posteriors.shape[0])
+        #     ]
+        # )
 
         return error, posteriors
 
@@ -355,9 +368,19 @@ class BP(Decoder):
 class BPM(BP):
     """Decoder using averages to cut BP symmetry."""
 
-    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, reset: int = 12):
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, reset: int = 12, threshold: float = 0.001):
+        """Initialise a BPM decoder.
+        
+        Parameters
+        ----------
+        reset : int
+            After how many iterations to reset the node with greatest oscillations, default is 12.
+        threshold : float
+            Stop BP iterations if oscillations are within threshold, default is 0.001.
+        """
         super().__init__(field, h, error_channel, max_iter)
         self.reset = reset
+        self.threshold = threshold
 
     def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
         if not isinstance(syndrome, np.ndarray):
@@ -398,11 +421,17 @@ class BPM(BP):
             # Every reset iterations reset posterior of one error mechanism to average
             if it % self.reset == 0:
                 # Find error mechanism with largest oscillations
-                arg = np.argmax(np.ptp(mean, axis=2))
+                ran = np.ptp(mean, axis=2)
+                arg = np.argmax(ran)
                 arg //= self.field.p
 
                 # Reset the posterior for arg and send to its neighbouring detectors
                 av = np.average(mean, axis=2)
+
+                # End iterations if within threshold
+                if max(ran[arg]) < self.threshold:
+                    continue
+
             self.Q[arg, self.err_neighbourhood[arg][:, 0], :] = av[arg, :]
 
             # Take average, chack convergence and send to OSD
@@ -429,6 +458,258 @@ class BPM(BP):
             return error, False, False, av_posteriors
         else:
             return error, False
+
+
+class RelayBP(BP):
+    """Decoder using relay belief propagation."""
+
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 60, first_iter: int = 80, solutions: int=3, relays: int=10, mem_weight: np.ndarray=None):
+        """Initialise a belief propagation decoder.
+        
+        Parameters
+        ----------
+        max_iter : int
+            The maximum number of iterations per relay leg, default is 60.
+        first_iter : int
+            The maximum number of iterations for the first relay leg, default is 80.
+        solutions : int
+            The number of RelayBP solutions to find, default is 3.
+        relays : int
+            The number of legs of the relay, default is 10.
+        mem_weight : np.ndarray
+            The memory weights for each leg (dims = variable nodes x field x relays). If None, assigns 0 for all nodes and all legs.
+        """
+        super().__init__(field, h, error_channel, max_iter)
+        self.first_iter = first_iter
+        self.solutions = solutions
+        self.relays = relays
+        self.mem_weight = mem_weight
+        self.mem_prior = error_channel.copy()
+
+        if mem_weight is None:
+            self.mem_weight = np.zeros((self.h.shape[1], self.field.p, self.relays))
+
+    def _error_to_check_message(self, P, Q):
+        """Pass messages from errors to checks."""
+        for i, dets in self.err_neighbourhood.items():
+            # TODO: Vectorize this too (later) (consider using einsum)
+
+            # Isolate the relevant check messages
+            posterior = P[dets[:, 0], i, :]
+
+            # Prevent /0 in parallelisation
+            post_i = np.where(posterior == 0)[0]  # todo: should be using isclose??
+
+            if len(post_i) == 0:
+                sub_posteriors = np.prod(posterior, axis=0) * self.mem_prior[i, :]
+                sub_posteriors = sub_posteriors / posterior
+            else:
+                sub_posteriors = np.empty_like(posterior)
+                mask = np.ones_like(posterior, dtype=bool)
+                for j in range(posterior.shape[0]):
+                    mask[j] = False
+                    sub_posteriors[j] = np.prod(posterior, axis=0, where=mask) * self.mem_prior[j, :]
+                    mask[j] = True
+
+            # Pass normalised messages
+            Q[i, dets[:, 0], :] = (
+                sub_posteriors / np.sum(sub_posteriors, axis=1)[:, np.newaxis]
+            )
+
+    def _calculate_posterior(self, P):
+        """Calculate the posterior probabilities and make hard decision on error."""
+         # For errors which do not flag any detectors, use original prior
+        posteriors = self.mem_prior.copy()
+
+        errs = list(self.err_neighbourhood.keys())
+        posteriors[errs, :] = (
+            np.array([np.prod(P[self.err_neighbourhood[i][:, 0], i, :], axis=0) for i in errs])
+            * self.mem_prior[errs, :]
+        )
+
+        # I think this is the same as above??? Is one of them faster??? Why did I keep both?!
+        # for i, dets in self.err_neighbourhood.items():
+        #     # TODO: Vectorize this:
+        #     posterior = np.prod(P[dets[:, 0], i, :], axis=0) * self.prior[i, :]
+        #     posteriors[i, :] = posterior
+
+        # Using probabilities
+        posteriors /= np.sum(posteriors, axis=1)[:, np.newaxis]
+        max_prob = np.argmax(posteriors, axis=1)
+        error = np.array(
+            [
+                max_prob[i] if posteriors[i, max_prob[i]] >= 0.5 else 0
+                for i in range(posteriors.shape[0])
+            ]
+        )
+
+        # Using likelihoods
+        # posteriors /= (
+        #     np.sum(posteriors, axis=1)[:, np.newaxis] - posteriors
+        # )  ####### do I have blowing up problems here??? yes, yes you do...
+
+        # max_lik = np.argmax(posteriors, axis=1)
+        # # if 50:50 chance between 2 errors, max_lik will pick the 1st in row (lower power)
+        # error = np.array(
+        #     [
+        #         max_lik[i] if posteriors[i, max_lik[i]] >= 1 else 0
+        #         for i in range(posteriors.shape[0])
+        #     ]
+        # )
+
+        return error, posteriors
+
+    def update_memory(self, posteriors: np.ndarray[float], leg: int):
+        """Update memory prior for next leg."""
+        self.mem_prior = (1 - self.mem_weight[:, :, leg]) * self.prior + self.mem_weight[:, :, leg] * posteriors
+
+    def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], leg: int, metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
+        """Run BP for one leg with the given posterior.
+        
+        Parameters
+        ----------
+        posterior : np.ndarray[float]
+            The posterior to initalise the leg with.
+        syndrome : np.ndarray[int]
+            The syndrome to correct.
+        metric : bool
+            Whether to keep track of posteriors.
+            
+        Returns
+        -------
+        error : np.ndarray[int]
+            The decoded error.
+        success : bool
+            Whether BP converged to a valid error.
+        posterior : np.ndarray[float]
+            The final posteriors.
+        """
+        if metric:
+            posterior_track = []
+
+        # TODO: max_iter should be larger for first leg
+
+        # Initialise prior with previous leg (P, Q already initialised with previous leg)
+        self.mem_prior = posterior.copy()
+
+        if leg == 0:
+            it = self.first_iter
+        else:
+            it = self.max_iter
+
+        for _ in range(it):
+
+            Pi, Pj, Pk = np.where(self.P == np.inf)
+
+            # Pass messages
+            self._check_to_error_message(syndrome, self.P, self.Q)
+            self._error_to_check_message(self.P, self.Q)
+            # TODO: should be doing err to check and check to err in one iter not the other way around!
+
+            self.P[Pi, Pj, Pk] = np.inf * np.ones_like(self.P[Pi, Pj, Pk])
+
+            # Calculate posterior and make hard decision on errors
+            error, posteriors = self._calculate_posterior(self.P)
+
+            if metric:
+                posterior_track.append(posteriors.tolist())
+
+            # Check convergence
+            if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, posteriors, posterior_track
+                else:
+                    return error, True, posteriors
+                
+            # Update memory prior
+            self.update_memory(posteriors, leg)
+
+        if metric:
+            return error, False, posteriors, posterior_track
+        else:
+            return error, False, posteriors
+
+    def score(self, error: np.ndarray[int]) -> int:
+        """Score the error based on the prior.
+        
+        Parameters
+        ----------
+        error : np.ndarray[int]
+            The error to score.
+            
+        Returns
+        -------
+        score : float
+            The likelihood of the error.
+        """
+        score = 0
+
+        for i, err in enumerate(error):
+            post = self.prior[i, err]
+            if post > 0:
+                score += np.log(post)
+            else:
+                score -= 1000
+
+        return score
+
+    def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
+        """Decode the syndrome using belief propagation.
+
+        Parameters
+        ----------
+        syndrome : nd.array
+            The syndrome of the error.
+        debug : bool
+            Whether to return debug information (error, success, bp_success, posteriors), default is False. Use if post-processing results.
+        metric : bool
+            Whether to return posteriors calculated at each iteration.
+
+        Returns
+        -------
+        error : nd.array
+            The predicted error.
+        success : bool
+            Whether the decoding converged to a valid solution.
+        """
+        # Store all solutions and their likelihoods
+        num_solutions = 0
+        solutions = np.zeros((self.solutions, self.h.shape[1]), dtype=int)
+        solutions_lh = np.ones((self.solutions)) * -np.inf
+
+        posterior = self.prior.copy()
+        if metric:
+            posterior_track = [self.prior.tolist()]
+        
+        for leg in range(self.relays):
+            # Run one leg
+            if metric:
+                error, success, posteriors, leg_posteriors = self.relay_leg(posterior, syndrome, leg, metric=True)
+                posterior_track.extend(leg_posteriors)
+            else:
+                error, success, posteriors = self.relay_leg(posterior, syndrome, leg)
+
+            if success:
+                solutions[num_solutions, :] = error
+                solutions_lh[num_solutions] = self.score(error)
+                num_solutions += 1
+
+            if num_solutions >= self.solutions:
+                break
+        
+        if not num_solutions:
+            if metric:
+                return error, False, False, posterior_track
+            if debug:
+                return error, False, False, posteriors
+            return error, False
+
+        final_error = solutions[np.argmax(solutions_lh), :]
+        if metric:
+            return final_error, True, True, posterior_track
+        elif debug:
+            return final_error, True, True, posteriors
+        return final_error, True
 
 
 class OSD(Decoder):
@@ -697,9 +978,10 @@ class BPOSD(Decoder):
             return osd.decode(syndrome, debug)
 
 class BPMOSD(BPOSD):
-    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, order: int = 0, reset: int = 12):
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, order: int = 0, reset: int = 12, threshold: float = 0.001):
         super().__init__(field, h, error_channel, max_iter, order)
         self.reset = reset
+        self.threshold = threshold
 
     def decode(self, syndrome: np.ndarray[int], debug: bool = False, metric: bool = False) -> tuple[np.ndarray, bool]:  # TODO: do I wanna keep metric? and if so currently should have metric OR debug enabled and metric is kinda a superset of debug so can be cleaner!
         """
@@ -721,7 +1003,7 @@ class BPMOSD(BPOSD):
         bool
             Whether the decoding was successful.
         """
-        bpm = BPM(self.field, self.h, self.error_channel, self.max_iter, self.reset)
+        bpm = BPM(self.field, self.h, self.error_channel, self.max_iter, self.reset, self.threshold)
 
         if metric:
             error, success, bp_success, posterior, posterior_track = bpm.decode(syndrome, metric=True)
@@ -744,6 +1026,139 @@ class BPMOSD(BPOSD):
             return error, success, False, posterior_track
         else:
             return osd.decode(syndrome, debug)
+
+
+class BPLSDbin(Decoder):
+    """Decode using BP on qudits then binarise for LSD."""
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 1000, bits_per_step: int = None, lsd_order: int = 0, lsd_method: str = 'LSD_0'):
+        """
+        Initialise a BP+LSDbin decoder.
+        
+        Parameters
+        ----------
+        max_iter : int
+            The maximum number of iterations for belief propagation, default is 1000.
+        bits_per_step : int
+            Specifies the number of bits added to the cluster in each step of the LSD algorithm. If none given, set to block length of code.
+        lsd_order : int
+            The order of the LSD algorithm applied to each cluster. Must be greater than or equal to 0, by default 0.
+        lsd_method : str
+            The LSD method of the LSD algorithm applied to each cluster. Must be one of {'LSD_0', 'LSD_E', 'LSD_CS'}. By default 'LSD_0'.
+        """
+        super().__init__(field, h, error_channel)
+        self.max_iter = max_iter
+        self.lsd_order = lsd_order
+        self.lsd_method = lsd_method
+
+        if bits_per_step == None:
+            self.bits_per_step = self.h.shape[1]
+        else:
+            self.bits_per_step = bits_per_step
+
+    def binarise(self, array: np.ndarray[int]):
+        """
+        Rewrite an array (in the given field) as a binary array.
+
+        Parameters
+        ----------
+        array : np.ndarray[int]
+            The array to be binarised.
+        
+        Returns
+        -------
+        array_bin : np.ndarray[int]
+            The binarised array.
+        """
+        dims = array.shape
+        if not len(dims) in [1, 2]:
+            raise ValueError(f"Array must be 1 or 2 dimensional, not {len(dims)}.")
+
+        # Vector case
+        if len(dims) == 1:
+            array_bin = np.zeros(dims[0] * (self.field.p - 1), dtype=int)
+            zeros = np.nonzero(array)[0]
+            for z in zeros:
+                array_bin[z * (self.field.p - 1) + array[z] - 1] = 1
+
+        # Matrix case
+        elif len(dims) == 2:
+            array_bin = np.zeros((dims[0] * (self.field.p - 1), dims[1] * (self.field.p - 1)), dtype=int)
+            for col in range(dims[1]):
+                zeros = np.nonzero(array[:, col])[0]
+                for i in range(self.field.p - 1):
+                    for z in zeros:
+                        array_bin[z * (self.field.p - 1) + (array[z, col] * (i+1)) % self.field.p - 1, (self.field.p - 1) * col + i] = 1
+
+        return array_bin
+    
+    def ditarise(self, array_bin: np.ndarray[int]):
+        """
+        Rewrite an array (in binary) as a dit array.
+
+        Parameters
+        ----------
+        array_bin : np.ndarray[int]
+            The binary array to be converted.
+        
+        Returns
+        -------
+        array_bin : np.ndarray[int]
+            The dit array.
+        """
+        dims = array_bin.shape
+        if not len(dims) == 1:
+            raise ValueError(f"Array must be 1 dimensional, not {len(dims)}.")
+        
+        qudits = dims[0] // (self.field.p - 1)
+        array = np.zeros(qudits, dtype=int)
+        zeros = np.nonzero(array_bin)[0]
+
+        for z in zeros:
+            array[z // (self.field.p - 1)] = z % (self.field.p - 1) + 1
+
+        return array
+
+
+    def decode(self, syndrome: np.ndarray[int], debug: bool = False) -> tuple[np.ndarray, bool]:
+        """
+        Decode the syndrome using BP+LSDbin (Belief Propagation and (binarised) Localised Statistics Decoder).
+
+        Parameters
+        ----------
+        syndrome : nd.array
+            The syndrome of the error.
+        debug : bool
+            Whether to return debug information (error, success, bp_success, posteriors), default is False.
+
+        Returns
+        -------
+        error : nd.array
+            The predicted error mechanism.
+        bool
+            Whether the decoding was successful.
+        """
+        bp = BP(self.field, self.h, self.error_channel, self.max_iter)
+
+        error, success, bp_success, posterior = bp.decode(syndrome, debug=True)
+        if success:
+            if debug:
+                return error, success, bp_success, posterior
+            else:
+                return error, success
+
+        # Binarise BP output for LSD
+        h_bin, syndrome_bin = self.binarise(self.h), self.binarise(syndrome)
+        posterior_bin = np.delete(posterior, 0, axis=1).flatten()
+
+        # lsd = BpLsdDecoder(h_bin, error_channel=posterior_bin, max_iter=0, bits_per_step=self.bits_per_step, lsd_order=self.lsd_order, lsd_method=self.lsd_method)
+        osd = BpOsdDecoder(h_bin, error_channel=list(posterior_bin), max_iter=0, osd_order=self.lsd_order, osd_method=self.lsd_method)
+        error_bin = osd.decode(syndrome_bin)
+        error = self.ditarise(error_bin)
+
+        if debug:
+            return error, True, False, posterior
+        else:
+            return error, True
 
 # TODO: Generate prior in advance in simulation, to be used in all shots
 
