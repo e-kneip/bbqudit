@@ -589,8 +589,12 @@ class RelayBP(BP):
 
         # TODO: max_iter should be larger for first leg
 
-        # Initialise prior with previous leg (P, Q already initialised with previous leg)
+        # Initialise prior and Q (error-to-check message) with previous leg
         self.mem_prior = posterior.copy()
+        for i in range(self.h.shape[1]):
+            # Send the same message of priors for each error to its neighbouring detectors
+            if i in self.err_neighbourhood:
+                self.Q[i, self.err_neighbourhood[i][:, 0], :] = self.mem_prior[i]
 
         if leg == 0:
             it = self.first_iter
@@ -696,6 +700,8 @@ class RelayBP(BP):
 
             if num_solutions >= self.solutions:
                 break
+
+            posterior = posteriors.copy()
         
         if not num_solutions:
             if metric:
