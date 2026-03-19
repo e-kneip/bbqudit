@@ -746,6 +746,111 @@ class ProdRelayBP(RelayBP):
         self.mem_prior = self.prior * self.qmem_prior
 
 
+class SmoothRelayBP(RelayBP):
+    """RelayBP decoder with a memory scaled wrt loop size."""
+
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 60, first_iter: int = 80, solutions: int=3, relays: int=10, mem_weight: np.ndarray=None, loop_size: int=1):
+        """Initialise a belief propagation decoder.
+        
+        Parameters
+        ----------
+        max_iter : int
+            The maximum number of iterations per relay leg, default is 60.
+        first_iter : int
+            The maximum number of iterations for the first relay leg, default is 80.
+        solutions : int
+            The number of RelayBP solutions to find, default is 3.
+        relays : int
+            The number of legs of the relay, default is 10.
+        mem_weight : np.ndarray
+            The memory weights for each leg (dims = variable nodes x field x relays). If None, assigns 0 for all nodes and all legs.
+        loop_size : int
+            The size of the smallest loop in the Tanner graph.
+            TODO: Make this dependent on the detector (doesn't matter if translationally invariant like BB codes)
+        """
+        super().__init__(field, h, error_channel, max_iter, first_iter, solutions, relays, mem_weight)
+        if not loop_size > 0:
+            raise ValueError(f"loop_size must be a positive integer, not {loop_size}.")
+        self.loop_size = loop_size
+        self.qmem_prior = np.zeros_like(self.mem_prior)
+
+    def update_memory(self, posteriors: np.ndarray[float], leg: int, iteration: int):
+        """Update memory prior for next leg."""
+        if iteration % self.loop_size == 0:
+            self.qmem_prior *= self.mem_weight[:, :, leg]
+        self.qmem_prior += posteriors
+        self.mem_prior = self.prior + self.qmem_prior
+
+    def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], leg: int, metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
+        """Run BP for one leg with the given posterior.
+        
+        Parameters
+        ----------
+        posterior : np.ndarray[float]
+            The posterior to initalise the leg with.
+        syndrome : np.ndarray[int]
+            The syndrome to correct.
+        metric : bool
+            Whether to keep track of posteriors.
+            
+        Returns
+        -------
+        error : np.ndarray[int]
+            The decoded error.
+        success : bool
+            Whether BP converged to a valid error.
+        posterior : np.ndarray[float]
+            The final posteriors.
+        """
+        if metric:
+            posterior_track = []
+
+        # TODO: max_iter should be larger for first leg
+
+        # Initialise prior and Q (error-to-check message) with previous leg
+        self.mem_prior = posterior.copy()
+        for i in range(self.h.shape[1]):
+            # Send the same message of priors for each error to its neighbouring detectors
+            if i in self.err_neighbourhood:
+                self.Q[i, self.err_neighbourhood[i][:, 0], :] = self.mem_prior[i]
+
+        if leg == 0:
+            it = self.first_iter
+        else:
+            it = self.max_iter
+
+        for iteration in range(it):
+
+            Pi, Pj, Pk = np.where(self.P == np.inf)
+
+            # Pass messages
+            self._check_to_error_message(syndrome, self.P, self.Q)
+            self._error_to_check_message(self.P, self.Q)
+            # TODO: should be doing err to check and check to err in one iter not the other way around!
+
+            self.P[Pi, Pj, Pk] = np.inf * np.ones_like(self.P[Pi, Pj, Pk])
+
+            # Calculate posterior and make hard decision on errors
+            error, posteriors = self._calculate_posterior(self.P)
+
+            if metric:
+                posterior_track.append(posteriors.tolist())
+
+            # Check convergence
+            if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, posteriors, posterior_track
+                else:
+                    return error, True, posteriors
+
+            # Update memory prior
+            self.update_memory(posteriors, leg, iteration)
+
+        if metric:
+            return error, False, posteriors, posterior_track
+        else:
+            return error, False, posteriors
+
 
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
