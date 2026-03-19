@@ -852,6 +852,47 @@ class SmoothRelayBP(RelayBP):
             return error, False, posteriors
 
 
+class DoubleRelayBP(SmoothRelayBP):
+    """RelayBP decoder with double memory: within loops and betwen loops."""
+
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter: int = 60, first_iter: int = 80, solutions: int=3, relays: int=10, mem_weight: np.ndarray=None, micro_mem_weight: np.ndarray=None, loop_size: int=1):
+        """Initialise a belief propagation decoder.
+        
+        Parameters
+        ----------
+        max_iter : int
+            The maximum number of iterations per relay leg, default is 60.
+        first_iter : int
+            The maximum number of iterations for the first relay leg, default is 80.
+        solutions : int
+            The number of RelayBP solutions to find, default is 3.
+        relays : int
+            The number of legs of the relay, default is 10.
+        mem_weight : np.ndarray
+            The memory weights for each leg (dims = variable nodes x field x relays). If None, assigns 0 for all nodes and all legs.
+        loop_size : int
+            The size of the smallest loop in the Tanner graph.
+            TODO: Make this dependent on the detector (doesn't matter if translationally invariant like BB codes)
+        """
+        super().__init__(field, h, error_channel, max_iter, first_iter, solutions, relays, mem_weight, loop_size)
+        self.micro_mem_weight = micro_mem_weight
+        if micro_mem_weight is None:
+            self.micro_mem_weight = np.zeros((self.h.shape[1], self.field.p, self.relays))
+        self.qmicro_mem_prior = np.zeros_like(self.mem_prior)
+
+    def update_memory(self, posteriors: np.ndarray[float], leg: int, iteration: int):
+        """Update memory prior for next leg."""
+        if iteration % self.loop_size == 0:
+            self.qmem_prior += self.qmicro_mem_prior
+            self.qmem_prior *= self.mem_weight[:, :, leg]
+            self.qmicro_mem_prior = np.zeros_like(self.mem_prior)
+
+        self.qmicro_mem_prior *= self.micro_mem_weight[:, :, leg]
+        self.qmicro_mem_prior += posteriors
+
+        self.mem_prior = self.prior + self.qmem_prior + self.qmicro_mem_prior
+
+
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
 
