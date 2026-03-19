@@ -776,10 +776,10 @@ class SmoothRelayBP(RelayBP):
 
     def update_memory(self, posteriors: np.ndarray[float], leg: int, iteration: int):
         """Update memory prior for next leg."""
-        if iteration % self.loop_size == 0:
+        self.mem_prior = self.prior + self.qmem_prior + posteriors
+        if (iteration % self.loop_size == 0):
             self.qmem_prior *= self.mem_weight[:, :, leg]
-        self.qmem_prior += posteriors
-        self.mem_prior = self.prior + self.qmem_prior
+        self.qmem_prior += (posteriors * self.mem_weight[:, :, leg])
 
     def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], leg: int, metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
         """Run BP for one leg with the given posterior.
