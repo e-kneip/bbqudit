@@ -893,6 +893,194 @@ class DoubleRelayBP(SmoothRelayBP):
         self.mem_prior = self.prior + self.qmem_prior + self.qmicro_mem_prior
 
 
+class StrawBP(RelayBP):
+    """Decoder using alternating legs of MemBP and standard BP as an ensemble."""
+
+    def __init__(self, field: Field, h: np.ndarray[int], error_channel: np.ndarray[float], max_iter_bp: int = 60, max_iter_mem: int = 40, solutions: int=3, relays: int=3, runners: int=2, centre: float=0.05, width: float=0.2):
+        """Initialise a belief propagation decoder.
+        
+        Parameters
+        ----------
+        max_iter_bp : int
+            The maximum number of iterations per BP stem, default is 60.
+        max_iter_mem : int
+            The maximum number of iterations per MemBP runner, default is 40.
+        solutions : int
+            The number of StrawBP solutions to find, default is 3.
+        relays : int
+            The number of layers of StrawBP to run (one layer = MemBP runner + BP stem), default is 3.
+        runners : int
+            The number of MemBP runners to create in every layer, default is 2.
+        centre : float
+            The centre of the normal distribution of coefficients in MemBP runners.
+        width : float
+            The width of the normal distribution of coefficients in MemBP runners.
+        """
+        # Use of iters in RelayBP overwritten and mem_weight found explicitly
+        super().__init__(field, h, error_channel, 10, 10, solutions, relays, None)
+        self.max_iter_bp = max_iter_bp
+        self.max_iter_mem = max_iter_mem
+        self.runners = runners
+        self.centre = centre
+        self.width = width
+
+    def update_memory(self, posteriors: np.ndarray[float]):
+        """Update memory prior for next leg."""
+        self.mem_prior = (1 - self.mem_weight) * self.prior + self.mem_weight * posteriors
+
+    def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
+        """Run BP for one leg with the given posterior.
+        
+        Parameters
+        ----------
+        posterior : np.ndarray[float]
+            The posterior to initalise the leg with.
+        syndrome : np.ndarray[int]
+            The syndrome to correct.
+        metric : bool
+            Whether to keep track of posteriors.
+            
+        Returns
+        -------
+        error : np.ndarray[int]
+            The decoded error.
+        success : bool
+            Whether BP converged to a valid error.
+        posterior : np.ndarray[float]
+            The final posteriors.
+        """
+        if metric:
+            posterior_track = []
+
+        # TODO: max_iter should be larger for first leg
+
+        # Initialise prior and Q (error-to-check message) with previous leg
+        self.mem_prior = posterior.copy()
+        for i in range(self.h.shape[1]):
+            # Send the same message of priors for each error to its neighbouring detectors
+            if i in self.err_neighbourhood:
+                self.Q[i, self.err_neighbourhood[i][:, 0], :] = self.mem_prior[i]
+
+        for _ in range(self.max_iter_mem):
+
+            Pi, Pj, Pk = np.where(self.P == np.inf)
+
+            # Pass messages
+            self._check_to_error_message(syndrome, self.P, self.Q)
+            self._error_to_check_message(self.P, self.Q)
+            # TODO: should be doing err to check and check to err in one iter not the other way around!
+
+            self.P[Pi, Pj, Pk] = np.inf * np.ones_like(self.P[Pi, Pj, Pk])
+
+            # Calculate posterior and make hard decision on errors
+            error, posteriors = self._calculate_posterior(self.P)
+
+            if metric:
+                posterior_track.append(posteriors.tolist())
+
+            # Check convergence
+            if np.all(self.h @ error % self.field.p == syndrome):
+                if metric:
+                    return error, True, posteriors, posterior_track
+                else:
+                    return error, True, posteriors
+                
+            # Update memory prior
+            self.update_memory(posteriors)
+
+        if metric:
+            return error, False, posteriors, posterior_track
+        else:
+            return error, False, posteriors
+
+    def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
+        """Decode the syndrome using belief propagation.
+
+        Parameters
+        ----------
+        syndrome : nd.array
+            The syndrome of the error.
+        debug : bool
+            Whether to return debug information (error, success, bp_success, posteriors), default is False. Use if post-processing results.
+        metric : bool
+            Whether to return posteriors calculated at each iteration.
+
+        Returns
+        -------
+        error : nd.array
+            The predicted error.
+        success : bool
+            Whether the decoding converged to a valid solution.
+        """
+        # Store all solutions and their likelihoods
+        num_solutions = 0
+        solutions = np.zeros((self.solutions, self.h.shape[1]), dtype=int)
+        solutions_lh = np.ones((self.solutions)) * -np.inf
+
+        posterior = self.prior.copy()
+        if metric:
+            posterior_track = [self.prior.tolist()]
+        
+        for stem in range(self.relays):
+            runner_posteriors = []
+            # Run MemBP
+            for runner in self.runners:
+                # Set memory strengths
+                self.mem_weight = np.random.uniform(self.centre - self.width/2, self.centre + self.width/2, size=(self.h.shape[1], self.field.p))
+
+                if metric:
+                    error, success, posteriors, leg_posteriors = self.relay_leg(posterior, syndrome, metric=True)
+                    posterior_track.extend(leg_posteriors)
+                else:
+                    error, success, posteriors = self.relay_leg(posterior, syndrome)
+
+                if success:
+                    solutions[num_solutions, :] = error
+                    solutions_lh[num_solutions] = self.score(error)
+                    num_solutions += 1
+
+                if num_solutions >= self.solutions:
+                    break
+
+                runner_posteriors.append(posteriors.copy())
+            
+            if num_solutions >= self.solutions:
+                break
+
+            stem_posteriors = []
+            # Run BP
+            for post in runner_posteriors:
+                bp = BP(self.field, self.h, post, self.max_iter_bp)
+                error, success = bp.decode(syndrome, debug=debug, metric=metric)
+
+                if success:
+                    solutions[num_solutions, :] = error
+                    solutions_lh[num_solutions] = self.score(error)
+                    num_solutions += 1
+
+                if num_solutions >= self.solutions:
+                    break
+
+                stem_posteriors.append(posteriors.copy())
+
+            ######### need way to keep track of which strawberries have grown and skip their for loop!!!
+
+        
+        if not num_solutions:
+            if metric:
+                return error, False, False, posterior_track
+            if debug:
+                return error, False, False, posteriors
+            return error, False
+
+        final_error = solutions[np.argmax(solutions_lh), :]
+        if metric:
+            return final_error, True, True, posterior_track
+        elif debug:
+            return final_error, True, True, posteriors
+        return final_error, True
+
+
 class OSD(Decoder):
     """Decoder using ordered statistics decoding."""
 
