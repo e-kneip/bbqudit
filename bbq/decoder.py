@@ -486,6 +486,11 @@ class RelayBP(BP):
         self.mem_weight = mem_weight
         self.mem_prior = error_channel.copy()
 
+        # Store all solutions and their likelihoods
+        self.num_solutions = 0
+        self.guessed_errors = np.zeros((self.solutions, self.h.shape[1]), dtype=int)
+        self.solutions_lh = np.ones((self.solutions)) * -np.inf
+
         if mem_weight is None:
             self.mem_weight = np.zeros((self.h.shape[1], self.field.p, self.relays))
 
@@ -619,19 +624,21 @@ class RelayBP(BP):
                 posterior_track.append(posteriors.tolist())
 
             # Check convergence
-            if np.all(self.h @ error % self.field.p == syndrome):
-                if metric:
-                    return error, True, posteriors, posterior_track
-                else:
-                    return error, True, posteriors
+            if np.all(self.h @ error % self.field.p == syndrome) and not np.all(error == self.guessed_errors[self.num_solutions-1]):
+                self.guessed_errors[self.num_solutions, :] = error
+                self.solutions_lh[self.num_solutions] = self.score(error)
+                self.num_solutions += 1
                 
             # Update memory prior
             self.update_memory(posteriors, leg)
 
+            if self.num_solutions >= self.solutions:
+                break
+
         if metric:
-            return error, False, posteriors, posterior_track
+            return posteriors, posterior_track
         else:
-            return error, False, posteriors
+            return posteriors
 
     def score(self, error: np.ndarray[int]) -> int:
         """Score the error based on the prior.
@@ -665,7 +672,7 @@ class RelayBP(BP):
         syndrome : nd.array
             The syndrome of the error.
         debug : bool
-            Whether to return debug information (error, success, bp_success, posteriors), default is False. Use if post-processing results.
+            Whether to return debug information (error, success, posteriors), default is False. Use if post-processing results.
         metric : bool
             Whether to return posteriors calculated at each iteration.
 
@@ -676,11 +683,6 @@ class RelayBP(BP):
         success : bool
             Whether the decoding converged to a valid solution.
         """
-        # Store all solutions and their likelihoods
-        num_solutions = 0
-        solutions = np.zeros((self.solutions, self.h.shape[1]), dtype=int)
-        solutions_lh = np.ones((self.solutions)) * -np.inf
-
         posterior = self.prior.copy()
         if metric:
             posterior_track = [self.prior.tolist()]
@@ -688,33 +690,27 @@ class RelayBP(BP):
         for leg in range(self.relays):
             # Run one leg
             if metric:
-                error, success, posteriors, leg_posteriors = self.relay_leg(posterior, syndrome, leg, metric=True)
+                posterior, leg_posteriors = self.relay_leg(posterior, syndrome, leg, metric=True)
                 posterior_track.extend(leg_posteriors)
             else:
-                error, success, posteriors = self.relay_leg(posterior, syndrome, leg)
+                posterior = self.relay_leg(posterior, syndrome, leg)
 
-            if success:
-                solutions[num_solutions, :] = error
-                solutions_lh[num_solutions] = self.score(error)
-                num_solutions += 1
-
-            if num_solutions >= self.solutions:
+            if self.num_solutions >= self.solutions:
                 break
-
-            posterior = posteriors.copy()
         
-        if not num_solutions:
+        if not self.num_solutions:
+            error = np.zeros(self.h.shape[1])
             if metric:
-                return error, False, False, posterior_track
+                return error, False, posterior_track
             if debug:
-                return error, False, False, posteriors
+                return error, False, posterior
             return error, False
 
-        final_error = solutions[np.argmax(solutions_lh), :]
+        final_error = self.guessed_errors[np.argmax(self.solutions_lh), :]
         if metric:
-            return final_error, True, True, posterior_track
+            return final_error, True, posterior_track
         elif debug:
-            return final_error, True, True, posteriors
+            return final_error, True, posterior
         return final_error, True
 
 
@@ -837,6 +833,11 @@ class SmoothRelayBP(RelayBP):
                 posterior_track.append(posteriors.tolist())
 
             # Check convergence
+
+            ##########################
+            # this is broken bcos I changed relaybp to store solutions in self.guessed_error so number of outputs of leg is wrong!!!!
+            ##########################
+
             if np.all(self.h @ error % self.field.p == syndrome):
                 if metric:
                     return error, True, posteriors, posterior_track
@@ -928,7 +929,7 @@ class StrawBP(RelayBP):
         """Update memory prior for next leg."""
         self.mem_prior = (1 - self.mem_weight) * self.prior + self.mem_weight * posteriors
 
-    def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
+    def relay_leg(self, posterior: np.ndarray[float], syndrome: np.ndarray[int], no_mem = False, metric: bool = False) -> tuple[np.ndarray[int], bool, np.ndarray[float]]:
         """Run BP for one leg with the given posterior.
         
         Parameters
@@ -937,6 +938,8 @@ class StrawBP(RelayBP):
             The posterior to initalise the leg with.
         syndrome : np.ndarray[int]
             The syndrome to correct.
+        no_mem : bool
+            Use prior instead of mem_prior (i.e. revert to standard BP)
         metric : bool
             Whether to keep track of posteriors.
             
@@ -961,8 +964,12 @@ class StrawBP(RelayBP):
             if i in self.err_neighbourhood:
                 self.Q[i, self.err_neighbourhood[i][:, 0], :] = self.mem_prior[i]
 
-        for _ in range(self.max_iter_mem):
+        if no_mem:
+            its = self.max_iter_bp
+        else:
+            its = self.max_iter_mem
 
+        for _ in range(its):
             Pi, Pj, Pk = np.where(self.P == np.inf)
 
             # Pass messages
@@ -979,19 +986,22 @@ class StrawBP(RelayBP):
                 posterior_track.append(posteriors.tolist())
 
             # Check convergence
-            if np.all(self.h @ error % self.field.p == syndrome):
-                if metric:
-                    return error, True, posteriors, posterior_track
-                else:
-                    return error, True, posteriors
+            if np.all(self.h @ error % self.field.p == syndrome) and not np.all(error == self.guessed_errors[self.num_solutions-1]):
+                self.guessed_errors[self.num_solutions, :] = error
+                self.solutions_lh[self.num_solutions] = self.score(error)
+                self.num_solutions += 1
                 
             # Update memory prior
-            self.update_memory(posteriors)
+            if not no_mem:
+                self.update_memory(posteriors)
+
+            if self.num_solutions >= self.solutions:
+                break
 
         if metric:
-            return error, False, posteriors, posterior_track
+            return posteriors, posterior_track
         else:
-            return error, False, posteriors
+            return posteriors
 
     def decode(self, syndrome: np.ndarray, debug: bool = False, metric: bool = False) -> tuple[np.ndarray[int], bool]:
         """Decode the syndrome using belief propagation.
@@ -1012,72 +1022,49 @@ class StrawBP(RelayBP):
         success : bool
             Whether the decoding converged to a valid solution.
         """
-        # Store all solutions and their likelihoods
-        num_solutions = 0
-        solutions = np.zeros((self.solutions, self.h.shape[1]), dtype=int)
-        solutions_lh = np.ones((self.solutions)) * -np.inf
-
         posterior = self.prior.copy()
         if metric:
             posterior_track = [self.prior.tolist()]
+
+        ######### need way to keep track of which strawberries have grown and skip their for loop!!!
         
         for stem in range(self.relays):
-            runner_posteriors = []
             # Run MemBP
-            for runner in self.runners:
-                # Set memory strengths
-                self.mem_weight = np.random.uniform(self.centre - self.width/2, self.centre + self.width/2, size=(self.h.shape[1], self.field.p))
+            # Set memory strengths
+            self.mem_weight = np.random.uniform(self.centre - self.width/2, self.centre + self.width/2, size=(self.h.shape[1], self.field.p))
 
-                if metric:
-                    error, success, posteriors, leg_posteriors = self.relay_leg(posterior, syndrome, metric=True)
-                    posterior_track.extend(leg_posteriors)
-                else:
-                    error, success, posteriors = self.relay_leg(posterior, syndrome)
+            if metric:
+                posterior, leg_posteriors = self.relay_leg(posterior, syndrome, no_mem=False, metric=True)
+                posterior_track.extend(leg_posteriors)
+            else:
+                posterior = self.relay_leg(posterior, syndrome, no_mem=False)
 
-                if success:
-                    solutions[num_solutions, :] = error
-                    solutions_lh[num_solutions] = self.score(error)
-                    num_solutions += 1
-
-                if num_solutions >= self.solutions:
-                    break
-
-                runner_posteriors.append(posteriors.copy())
-            
-            if num_solutions >= self.solutions:
+            if self.num_solutions >= self.solutions:
                 break
 
-            stem_posteriors = []
             # Run BP
-            for post in runner_posteriors:
-                bp = BP(self.field, self.h, post, self.max_iter_bp)
-                error, success = bp.decode(syndrome, debug=debug, metric=metric)
-
-                if success:
-                    solutions[num_solutions, :] = error
-                    solutions_lh[num_solutions] = self.score(error)
-                    num_solutions += 1
-
-                if num_solutions >= self.solutions:
-                    break
-
-                stem_posteriors.append(posteriors.copy())
-
-            ######### need way to keep track of which strawberries have grown and skip their for loop!!!
-
-        
-        if not num_solutions:
             if metric:
-                return error, False, False, posterior_track
+                posterior, leg_posteriors = self.relay_leg(posterior, syndrome, no_mem=True, metric=True)
+                posterior_track.extend(leg_posteriors)
+            else:
+                posterior = self.relay_leg(posterior, syndrome, no_mem=True)
+
+            if self.num_solutions >= self.solutions:
+                break
+        
+        if not self.num_solutions:
+            error = np.zeros(self.h.shape[1])
+            if metric:
+                return error, False, posterior_track
             if debug:
-                return error, False, False, posteriors
+                return error, False, posterior
             return error, False
 
-        final_error = solutions[np.argmax(solutions_lh), :]
+        final_error = self.guessed_errors[np.argmax(self.solutions_lh), :]
         if metric:
-            return final_error, True, True, posterior_track
+            return final_error, True, posterior_track
         elif debug:
-            return final_error, True, True, posteriors
+            return final_error, True, posterior
         return final_error, True
 
 
